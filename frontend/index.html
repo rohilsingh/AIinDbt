@@ -223,11 +223,43 @@
 <!-- ============== TEAMS ============== -->
 <section data-panel="teams" class="panel hidden">
   <h2 class="h2">Microsoft Teams Bot</h2>
-  <p class="muted">Posts a test message via the configured Incoming Webhook URL.</p>
-  <label>Text <input id="tm_txt" value="Hello from AIinDbt 👋" /></label>
-  <button class="btn-primary" onclick="runTeamsTest()">Send test</button>
-  <pre id="tm_out"></pre>
-  <hr class="my-4" />
+
+  <div class="card">
+    <h3 class="h3">Try a command (same handler Teams uses)</h3>
+    <p class="muted">Type any slash command or a plain-English question. Same behaviour your team gets in Teams.</p>
+    <input id="cmd_in" placeholder="/help · /health · /sql top customers · /docs dim_customers" />
+    <button class="btn-primary mt-2" onclick="runCommand()">Run</button>
+    <pre id="cmd_out"></pre>
+  </div>
+
+  <div class="card">
+    <h3 class="h3">Available commands</h3>
+    <pre style="background:#f1f5f9; color:#0f172a; padding:1rem; font-size:.8rem;">
+/help                              — list commands
+/health                            — D3 project health KPIs
+/quality [n]                       — C3 bottom-N quality scores
+/search &lt;query&gt;                    — B3 semantic search
+/sql &lt;question&gt; | dialect=snowflake — B2 natural language → SQL
+/docs &lt;model&gt;                      — A1 generate schema.yml
+/undocumented                      — A1 list undocumented models
+/scaffold &lt;brief&gt; | layer=marts mat=table — A2 new model
+/staging &lt;source&gt; &lt;table&gt;          — A3 staging model
+/incremental                       — A4 candidates
+/incremental &lt;model&gt; &lt;ts_col&gt;      — A4 rewrite as incremental
+/anomaly &lt;model&gt;                   — C2 Elementary tests
+/lineage &lt;model&gt; &lt;column&gt;          — D2 column lineage
+
+(anything else)                    — B1 chat with project</pre>
+  </div>
+
+  <div class="card">
+    <h3 class="h3">Push a message to a channel</h3>
+    <p class="muted">Uses the configured Incoming Webhook URL.</p>
+    <label>Text <input id="tm_txt" value="Hello from AIinDbt 👋" /></label>
+    <button class="btn-primary" onclick="runTeamsTest()">Send test</button>
+    <pre id="tm_out"></pre>
+  </div>
+
   <p class="muted">
     Outgoing Webhook callback URL (give this to Teams):
     <code id="teams_url"></code>

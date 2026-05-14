@@ -17,7 +17,7 @@ import httpx
 from fastapi import HTTPException, Request
 
 from ..state import SETTINGS
-from . import chat
+from . import router
 
 
 def _verify(body: bytes, auth_header: str) -> bool:
@@ -52,15 +52,7 @@ async def handle_event(request: Request) -> dict[str, Any]:
 
     payload = await request.json()
     text = _extract_text(payload)
-    if not text:
-        return {"type": "message", "text": "Ask me something about your dbt project."}
-
-    try:
-        ans = chat.ask(text)
-        reply = ans["answer"]
-    except Exception as e:
-        reply = f"Sorry — I hit an error: {e}"
-
+    reply = router.dispatch(text)
     # Teams Outgoing Webhook accepts plain message or Adaptive Card.
     return {"type": "message", "text": reply}
 

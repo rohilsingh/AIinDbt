@@ -250,6 +250,12 @@ async function runAnomaly() {
 window.runAnomaly = runAnomaly;
 
 // ---- TEAMS (E2) ------------------------------------------------------------
+async function runCommand() {
+  const r = await api("/api/command", { method: "POST", body: JSON.stringify({ text: $("cmd_in").value }) });
+  $("cmd_out").textContent = r.reply;
+}
+window.runCommand = runCommand;
+
 async function runTeamsTest() {
   const r = await api("/api/teams/test", { method: "POST", body: JSON.stringify({
     text: $("tm_txt").value,

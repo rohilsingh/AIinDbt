@@ -15,7 +15,7 @@ from . import dbt_client
 from .state import SETTINGS, configured
 from .features import (
     anomaly, chat, docs, health, incremental, lineage,
-    nl2sql, quality, scaffold, search, staging, teams, tests,
+    nl2sql, quality, router, scaffold, search, staging, teams, tests,
 )
 
 
@@ -248,6 +248,16 @@ class TeamsTestIn(BaseModel):
 @app.post("/api/teams/test")
 def teams_test(p: TeamsTestIn) -> dict:
     return teams.test_send(p.text)
+
+
+class CommandIn(BaseModel):
+    text: str
+
+
+@app.post("/api/command")
+def run_command(p: CommandIn) -> dict:
+    """Run a Teams-style slash command from the web UI, no Teams required."""
+    return {"reply": router.dispatch(p.text)}
 
 
 # ---- frontend --------------------------------------------------------------
