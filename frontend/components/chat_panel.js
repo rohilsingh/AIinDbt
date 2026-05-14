@@ -147,13 +147,3 @@ export function toggleBookmarksDrawer() {
   if (d) { d.classList.toggle("open"); renderBookmarksDrawer(); }
 }
 
-function toast(msg, type) {
-  // local fallback if ui.js toast not available
-  const c = document.getElementById("toast-container");
-  if (!c) return;
-  const el = document.createElement("div");
-  el.className = `toast ${type}`;
-  el.textContent = msg;
-  c.appendChild(el);
-  setTimeout(() => el.remove(), 3000);
-}
