@@ -33,34 +33,40 @@ pip install -r requirements.txt
 ./run.sh
 ```
 
-### Windows (Command Prompt)
+### Windows (Command Prompt or PowerShell)
+
+Windows does not put `pip`-installed scripts on `PATH` by default, so call
+everything through `python -m`:
 
 ```cmd
-pip install -r requirements.txt
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+python -m pip install -r requirements.txt
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Windows (PowerShell)
-
-```powershell
-pip install -r requirements.txt
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-```
+> If `python` itself isn't found, use `py` (the Windows Python launcher) —
+> it ships with every Python install and is always on `PATH`:
+>
+> ```cmd
+> py -m pip install -r requirements.txt
+> py -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+> ```
 
 ### Windows — recommended: use a virtual environment
 
+A venv keeps everything local to this folder, so nothing pollutes your
+system Python and you never need to touch `PATH`:
+
 ```cmd
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+py -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Then open <http://localhost:8000> in any browser.
 
 > **Python version:** 3.10 or newer required.  
-> Download from <https://www.python.org/downloads/> and tick
-> **"Add Python to PATH"** during installation.
+> Download from <https://www.python.org/downloads/> — the
+> **"Add Python to PATH"** checkbox is optional with the commands above.
 
 ## Configure
 
