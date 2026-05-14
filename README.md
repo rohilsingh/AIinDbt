@@ -22,7 +22,7 @@ from one browser tab.
 | D1 | Interactive Lineage Explorer | Drag-and-filter DAG of your project |
 | D2 | Column-Level Lineage | Traces columns across models |
 | D3 | Model Health Dashboard | Coverage + freshness + test pass rates |
-| E2 | Slack Bot | Business users ask data questions in Slack |
+| E2 | Teams Bot | Business users ask data questions in Microsoft Teams |
 
 ## Run it
 
@@ -46,7 +46,10 @@ In the **Settings** tab paste:
    - Paste a dbt Cloud account ID, project ID, and service token
 5. **(Optional) Warehouse** — to actually *run* generated SQL, paste warehouse
    creds. Without these, B2/C2 will only generate SQL, not execute it.
-6. **(Optional) Slack** — bot token + signing secret to enable E2.
+6. **(Optional) Microsoft Teams** — either:
+   - **Outgoing Webhook** HMAC secret (lets users @mention the bot in a Teams
+     channel; configure the webhook in Teams to call `POST /api/teams/events`)
+   - **Incoming Webhook** URL (lets AIinDbt push messages into a channel)
 
 All settings are kept in-memory on the server for the session and never
 persisted to disk.

@@ -6,4 +6,3 @@ pydantic>=2.6
 python-multipart>=0.0.9
 networkx>=3.2
 sqlglot>=23.0
-slack-sdk>=3.27

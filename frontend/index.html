@@ -33,7 +33,7 @@
   <button class="tab" data-tab="incremental">⚡ Incremental (A4)</button>
   <button class="tab" data-tab="tests">✅ Tests (C1)</button>
   <button class="tab" data-tab="anomaly">🚨 Anomaly (C2)</button>
-  <button class="tab" data-tab="slack">💼 Slack (E2)</button>
+  <button class="tab" data-tab="teams">💼 Teams (E2)</button>
 </nav>
 
 <main class="p-6 max-w-7xl mx-auto">
@@ -67,10 +67,17 @@
   </div>
 
   <div class="card">
-    <h3 class="h3">Slack bot (optional, for E2)</h3>
-    <label>Bot token (xoxb-...) <input id="slack_bot_token" type="password" /></label>
-    <label>Signing secret <input id="slack_signing_secret" type="password" /></label>
-    <p class="muted">Point your Slack app's Event Subscriptions URL at <code>POST /api/slack/events</code> and subscribe to <code>app_mention</code>.</p>
+    <h3 class="h3">Microsoft Teams (optional, for E2)</h3>
+    <p class="muted">Two ways to wire Teams — use either or both:</p>
+    <label>Outgoing Webhook HMAC secret <input id="teams_outgoing_secret" type="password" placeholder="base64-encoded secret from Teams" /></label>
+    <label>Incoming Webhook URL <input id="teams_incoming_webhook" placeholder="https://outlook.office.com/webhook/..." /></label>
+    <p class="muted">
+      <b>Outgoing</b> (lets users @mention the bot in a channel): in Teams →
+      channel ⋯ → Connectors → Outgoing Webhooks → set callback URL to
+      <code>POST /api/teams/events</code>, copy the HMAC secret here.<br>
+      <b>Incoming</b> (lets the app push messages into a channel): channel ⋯ →
+      Connectors → Incoming Webhook, paste the URL above.
+    </p>
   </div>
 
   <button class="btn-primary" onclick="saveSettings()">Save settings</button>
@@ -213,16 +220,18 @@
   <div id="anom_out"></div>
 </section>
 
-<!-- ============== SLACK ============== -->
-<section data-panel="slack" class="panel hidden">
-  <h2 class="h2">Slack Bot</h2>
-  <p class="muted">After saving the Slack tokens in Settings, send a test message to any channel.</p>
-  <label>Channel ID <input id="slk_ch" placeholder="C01234567" /></label>
-  <label>Text <input id="slk_txt" value="Hello from AIinDbt 👋" /></label>
-  <button class="btn-primary" onclick="runSlackTest()">Send test</button>
-  <pre id="slk_out"></pre>
+<!-- ============== TEAMS ============== -->
+<section data-panel="teams" class="panel hidden">
+  <h2 class="h2">Microsoft Teams Bot</h2>
+  <p class="muted">Posts a test message via the configured Incoming Webhook URL.</p>
+  <label>Text <input id="tm_txt" value="Hello from AIinDbt 👋" /></label>
+  <button class="btn-primary" onclick="runTeamsTest()">Send test</button>
+  <pre id="tm_out"></pre>
   <hr class="my-4" />
-  <p class="muted">Event URL for your Slack app: <code id="slack_url"></code></p>
+  <p class="muted">
+    Outgoing Webhook callback URL (give this to Teams):
+    <code id="teams_url"></code>
+  </p>
 </section>
 
 </main>

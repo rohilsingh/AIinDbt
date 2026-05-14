@@ -15,7 +15,7 @@ from . import dbt_client
 from .state import SETTINGS, configured
 from .features import (
     anomaly, chat, docs, health, incremental, lineage,
-    nl2sql, quality, scaffold, search, slack, staging, tests,
+    nl2sql, quality, scaffold, search, staging, teams, tests,
 )
 
 
@@ -48,8 +48,8 @@ class SettingsIn(BaseModel):
     dbt_cloud_token: str | None = None
     warehouse_type: str | None = None
     warehouse_dsn: str | None = None
-    slack_bot_token: str | None = None
-    slack_signing_secret: str | None = None
+    teams_outgoing_secret: str | None = None
+    teams_incoming_webhook: str | None = None
 
 
 @app.get("/api/settings")
@@ -64,8 +64,8 @@ def get_settings() -> dict:
         "dbt_cloud_token_set": bool(SETTINGS.dbt_cloud_token),
         "warehouse_type": SETTINGS.warehouse_type,
         "warehouse_dsn_set": bool(SETTINGS.warehouse_dsn),
-        "slack_bot_token_set": bool(SETTINGS.slack_bot_token),
-        "slack_signing_secret_set": bool(SETTINGS.slack_signing_secret),
+        "teams_outgoing_secret_set": bool(SETTINGS.teams_outgoing_secret),
+        "teams_incoming_webhook_set": bool(SETTINGS.teams_incoming_webhook),
         "configured": configured(),
         "manifest_models": len(dbt_client.models()),
     }
@@ -234,21 +234,20 @@ def column_lineage_endpoint(model: str, column: str) -> dict:
     return lineage.column_lineage(model, column)
 
 
-# ---- E2 Slack --------------------------------------------------------------
+# ---- E2 Microsoft Teams ----------------------------------------------------
 
-@app.post("/api/slack/events")
-async def slack_events(request: Request) -> dict:
-    return await slack.handle_event(request)
+@app.post("/api/teams/events")
+async def teams_events(request: Request) -> dict:
+    return await teams.handle_event(request)
 
 
-class SlackTestIn(BaseModel):
-    channel: str
+class TeamsTestIn(BaseModel):
     text: str = "Hello from AIinDbt"
 
 
-@app.post("/api/slack/test")
-def slack_test(p: SlackTestIn) -> dict:
-    return slack.test_send(p.channel, p.text)
+@app.post("/api/teams/test")
+def teams_test(p: TeamsTestIn) -> dict:
+    return teams.test_send(p.text)
 
 
 # ---- frontend --------------------------------------------------------------

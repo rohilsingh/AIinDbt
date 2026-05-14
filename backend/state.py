@@ -24,9 +24,9 @@ class Settings:
     warehouse_type: str = ""      # "snowflake" | "bigquery" | "postgres" | ...
     warehouse_dsn: str = ""       # connection string
 
-    # Slack (optional)
-    slack_bot_token: str = ""
-    slack_signing_secret: str = ""
+    # Microsoft Teams (optional)
+    teams_outgoing_secret: str = ""    # HMAC shared secret from Teams Outgoing Webhook
+    teams_incoming_webhook: str = ""   # full URL of a Teams Incoming Webhook connector
 
 
 SETTINGS = Settings()
@@ -38,5 +38,5 @@ def configured() -> dict[str, bool]:
         "manifest": bool(SETTINGS.manifest),
         "dbt_cloud": bool(SETTINGS.dbt_cloud_token and SETTINGS.dbt_cloud_account_id),
         "warehouse": bool(SETTINGS.warehouse_dsn),
-        "slack": bool(SETTINGS.slack_bot_token),
+        "teams": bool(SETTINGS.teams_outgoing_secret or SETTINGS.teams_incoming_webhook),
     }

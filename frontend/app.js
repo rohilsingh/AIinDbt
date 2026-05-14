@@ -26,7 +26,7 @@ const esc = s => (s ?? "").toString()
 function renderStatus(cfg) {
   const items = [
     ["LLM", cfg.llm], ["Project", cfg.manifest || cfg.dbt_cloud],
-    ["Warehouse", cfg.warehouse], ["Slack", cfg.slack],
+    ["Warehouse", cfg.warehouse], ["Teams", cfg.teams],
   ];
   $("status-pill").innerHTML = items.map(([k, v]) =>
     `<span class="${v ? 'ok' : 'bad'} text-white">${k} ${v ? '✓' : '✗'}</span>`
@@ -42,7 +42,7 @@ async function loadStatus() {
   $("dbt_cloud_project_id").value = s.dbt_cloud_project_id || "";
   $("warehouse_type") && ($("warehouse_type").value = s.warehouse_type || "");
   renderStatus(s.configured);
-  $("slack_url").textContent = `${window.location.origin}/api/slack/events`;
+  $("teams_url").textContent = `${window.location.origin}/api/teams/events`;
 }
 loadStatus();
 
@@ -56,8 +56,8 @@ async function saveSettings() {
     dbt_cloud_account_id: $("dbt_cloud_account_id").value || undefined,
     dbt_cloud_project_id: $("dbt_cloud_project_id").value || undefined,
     dbt_cloud_token: $("dbt_cloud_token").value || undefined,
-    slack_bot_token: $("slack_bot_token").value || undefined,
-    slack_signing_secret: $("slack_signing_secret").value || undefined,
+    teams_outgoing_secret: $("teams_outgoing_secret").value || undefined,
+    teams_incoming_webhook: $("teams_incoming_webhook").value || undefined,
   };
   await api("/api/settings", { method: "POST", body: JSON.stringify(body) });
   for (const f of ["manifest_file", "catalog_file"]) {
@@ -249,11 +249,11 @@ async function runAnomaly() {
 }
 window.runAnomaly = runAnomaly;
 
-// ---- SLACK (E2) ------------------------------------------------------------
-async function runSlackTest() {
-  const r = await api("/api/slack/test", { method: "POST", body: JSON.stringify({
-    channel: $("slk_ch").value, text: $("slk_txt").value,
+// ---- TEAMS (E2) ------------------------------------------------------------
+async function runTeamsTest() {
+  const r = await api("/api/teams/test", { method: "POST", body: JSON.stringify({
+    text: $("tm_txt").value,
   }) });
-  $("slk_out").textContent = JSON.stringify(r, null, 2);
+  $("tm_out").textContent = JSON.stringify(r, null, 2);
 }
-window.runSlackTest = runSlackTest;
+window.runTeamsTest = runTeamsTest;
