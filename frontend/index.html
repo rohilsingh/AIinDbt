@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AIinDbt — Unified AI Copilot for dbt</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+<header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shadow">
+  <div>
+    <h1 class="text-2xl font-bold">AIinDbt</h1>
+    <p class="text-xs text-slate-400">Unified AI copilot for dbt — docs, tests, lineage, NL-SQL, Slack bot</p>
+  </div>
+  <div id="status-pill" class="text-xs"></div>
+</header>
+
+<nav class="border-b bg-white px-6 flex flex-wrap gap-1 sticky top-0 z-10">
+  <button class="tab" data-tab="settings">⚙ Settings</button>
+  <button class="tab" data-tab="health">📊 Health (D3)</button>
+  <button class="tab" data-tab="quality">🎯 Quality (C3)</button>
+  <button class="tab" data-tab="lineage">🌐 Lineage (D1)</button>
+  <button class="tab" data-tab="collineage">🧬 Column Lineage (D2)</button>
+  <button class="tab" data-tab="search">🔎 Search (B3)</button>
+  <button class="tab" data-tab="chat">💬 Chat (B1)</button>
+  <button class="tab" data-tab="nl2sql">🗣 NL→SQL (B2)</button>
+  <button class="tab" data-tab="docs">📝 Docs (A1)</button>
+  <button class="tab" data-tab="scaffold">🏗 Scaffold (A2)</button>
+  <button class="tab" data-tab="staging">🧱 Staging (A3)</button>
+  <button class="tab" data-tab="incremental">⚡ Incremental (A4)</button>
+  <button class="tab" data-tab="tests">✅ Tests (C1)</button>
+  <button class="tab" data-tab="anomaly">🚨 Anomaly (C2)</button>
+  <button class="tab" data-tab="slack">💼 Slack (E2)</button>
+</nav>
+
+<main class="p-6 max-w-7xl mx-auto">
+
+<!-- ============== SETTINGS ============== -->
+<section data-panel="settings" class="panel">
+  <h2 class="h2">Settings</h2>
+  <p class="muted">Nothing is written to disk — settings live in the server process memory only.</p>
+
+  <div class="card">
+    <h3 class="h3">LLM (Claude via Cline / Anthropic / OpenRouter)</h3>
+    <p class="muted">Paste your <b>Cline key</b> (or Anthropic / OpenRouter key). For Cline, set the base URL to your Cline gateway endpoint; for direct Anthropic, leave it blank.</p>
+    <label>API key <input id="llm_api_key" type="password" placeholder="sk-..." /></label>
+    <label>Base URL (optional) <input id="llm_base_url" placeholder="https://openrouter.ai/api/v1 — or blank for Anthropic" /></label>
+    <label>Model <input id="llm_model" placeholder="claude-sonnet-4-6" /></label>
+  </div>
+
+  <div class="card">
+    <h3 class="h3">dbt project — upload manifest</h3>
+    <p class="muted">Run <code>dbt parse</code> (or <code>dbt docs generate</code>) locally and upload the resulting <code>target/manifest.json</code>. Optionally also upload <code>target/catalog.json</code> for row-count signals.</p>
+    <label>manifest.json <input id="manifest_file" type="file" accept=".json" /></label>
+    <label>catalog.json (optional) <input id="catalog_file" type="file" accept=".json" /></label>
+  </div>
+
+  <div class="card">
+    <h3 class="h3">dbt Cloud (optional alternative to manifest upload)</h3>
+    <label>Host <input id="dbt_cloud_host" placeholder="cloud.getdbt.com" /></label>
+    <label>Account ID <input id="dbt_cloud_account_id" /></label>
+    <label>Project ID <input id="dbt_cloud_project_id" /></label>
+    <label>Service Token <input id="dbt_cloud_token" type="password" /></label>
+  </div>
+
+  <div class="card">
+    <h3 class="h3">Slack bot (optional, for E2)</h3>
+    <label>Bot token (xoxb-...) <input id="slack_bot_token" type="password" /></label>
+    <label>Signing secret <input id="slack_signing_secret" type="password" /></label>
+    <p class="muted">Point your Slack app's Event Subscriptions URL at <code>POST /api/slack/events</code> and subscribe to <code>app_mention</code>.</p>
+  </div>
+
+  <button class="btn-primary" onclick="saveSettings()">Save settings</button>
+</section>
+
+<!-- ============== HEALTH ============== -->
+<section data-panel="health" class="panel hidden">
+  <h2 class="h2">Model Health Dashboard</h2>
+  <button class="btn" onclick="loadHealth()">Refresh</button>
+  <div id="health_out"></div>
+</section>
+
+<!-- ============== QUALITY ============== -->
+<section data-panel="quality" class="panel hidden">
+  <h2 class="h2">Data Quality Scores</h2>
+  <button class="btn" onclick="loadQuality()">Refresh</button>
+  <div id="quality_out"></div>
+</section>
+
+<!-- ============== LINEAGE ============== -->
+<section data-panel="lineage" class="panel hidden">
+  <h2 class="h2">Interactive Lineage</h2>
+  <button class="btn" onclick="loadLineage()">Refresh graph</button>
+  <input id="lineage_filter" placeholder="filter by name…" oninput="filterLineage()" class="ml-2 w-64" />
+  <div id="lineage_net" style="height: 640px; border:1px solid #ddd; margin-top:1rem; background:#fff;"></div>
+</section>
+
+<!-- ============== COLUMN LINEAGE ============== -->
+<section data-panel="collineage" class="panel hidden">
+  <h2 class="h2">Column-Level Lineage</h2>
+  <label>Model <input id="col_model" /></label>
+  <label>Column <input id="col_column" /></label>
+  <button class="btn-primary" onclick="runColumnLineage()">Trace</button>
+  <pre id="col_out"></pre>
+</section>
+
+<!-- ============== SEARCH ============== -->
+<section data-panel="search" class="panel hidden">
+  <h2 class="h2">Semantic Search</h2>
+  <input id="search_q" placeholder="e.g. revenue by country" class="w-96" />
+  <button class="btn-primary" onclick="runSearch()">Search</button>
+  <div id="search_out"></div>
+</section>
+
+<!-- ============== CHAT ============== -->
+<section data-panel="chat" class="panel hidden">
+  <h2 class="h2">Chat with your dbt project</h2>
+  <textarea id="chat_q" rows="3" placeholder="Where do we calculate monthly active users?"></textarea>
+  <button class="btn-primary" onclick="runChat()">Ask</button>
+  <div id="chat_out"></div>
+</section>
+
+<!-- ============== NL2SQL ============== -->
+<section data-panel="nl2sql" class="panel hidden">
+  <h2 class="h2">Natural Language → SQL</h2>
+  <textarea id="nl_q" rows="3" placeholder="Top 10 customers by revenue last quarter"></textarea>
+  <label>Dialect
+    <select id="nl_dialect">
+      <option>snowflake</option><option>bigquery</option><option>redshift</option>
+      <option>postgres</option><option>databricks</option><option>duckdb</option>
+    </select>
+  </label>
+  <button class="btn-primary" onclick="runNL2SQL()">Generate</button>
+  <pre id="nl_out"></pre>
+</section>
+
+<!-- ============== DOCS ============== -->
+<section data-panel="docs" class="panel hidden">
+  <h2 class="h2">AI Documentation Generator</h2>
+  <button class="btn" onclick="loadUndocumented()">List undocumented models</button>
+  <div id="undoc_out"></div>
+  <hr class="my-4" />
+  <label>Model name <input id="doc_model" placeholder="dim_customers" /></label>
+  <button class="btn-primary" onclick="runDocs()">Generate YAML</button>
+  <pre id="doc_out"></pre>
+</section>
+
+<!-- ============== SCAFFOLD ============== -->
+<section data-panel="scaffold" class="panel hidden">
+  <h2 class="h2">Model Scaffolding</h2>
+  <textarea id="scaf_brief" rows="4" placeholder="A daily revenue model grouped by country, joining orders and customers."></textarea>
+  <label>Layer
+    <select id="scaf_layer">
+      <option>staging</option><option>intermediate</option><option>marts</option>
+    </select>
+  </label>
+  <label>Materialization
+    <select id="scaf_mat">
+      <option>table</option><option>view</option><option>incremental</option><option>ephemeral</option>
+    </select>
+  </label>
+  <button class="btn-primary" onclick="runScaffold()">Generate</button>
+  <div id="scaf_out"></div>
+</section>
+
+<!-- ============== STAGING ============== -->
+<section data-panel="staging" class="panel hidden">
+  <h2 class="h2">Staging Layer Generator</h2>
+  <label>Source name <input id="stg_src" placeholder="stripe" /></label>
+  <label>Table name <input id="stg_tbl" placeholder="charges" /></label>
+  <p class="muted">Columns auto-loaded from manifest sources, or paste CSV (name,type) below.</p>
+  <textarea id="stg_cols" rows="4" placeholder="id,number&#10;created_at,timestamp&#10;amount,number"></textarea>
+  <button class="btn-primary" onclick="runStaging()">Generate</button>
+  <div id="stg_out"></div>
+</section>
+
+<!-- ============== INCREMENTAL ============== -->
+<section data-panel="incremental" class="panel hidden">
+  <h2 class="h2">Incremental Model Advisor</h2>
+  <button class="btn" onclick="loadIncrAnalyze()">Analyze project</button>
+  <div id="incr_table"></div>
+  <hr class="my-4" />
+  <label>Model <input id="incr_model" /></label>
+  <label>Timestamp column <input id="incr_ts" placeholder="updated_at" /></label>
+  <label>Strategy
+    <select id="incr_strategy">
+      <option>merge</option><option>append</option><option>delete+insert</option><option>insert_overwrite</option>
+    </select>
+  </label>
+  <button class="btn-primary" onclick="runIncrRewrite()">Rewrite</button>
+  <div id="incr_out"></div>
+</section>
+
+<!-- ============== TESTS ============== -->
+<section data-panel="tests" class="panel hidden">
+  <h2 class="h2">AI Test Generator</h2>
+  <label>Model <input id="test_model" placeholder="dim_customers" /></label>
+  <p class="muted">Paste a CSV of sample rows (with header).</p>
+  <textarea id="test_csv" rows="8" placeholder="id,email,status&#10;1,a@x.com,active&#10;2,b@x.com,active&#10;3,c@x.com,churned"></textarea>
+  <button class="btn-primary" onclick="runTests()">Generate tests</button>
+  <pre id="test_out"></pre>
+</section>
+
+<!-- ============== ANOMALY ============== -->
+<section data-panel="anomaly" class="panel hidden">
+  <h2 class="h2">Anomaly Detection Tests (Elementary)</h2>
+  <p class="muted">Requires the <code>elementary-data/elementary</code> dbt package in your project.</p>
+  <label>Model (optional — leave blank for all) <input id="anom_model" /></label>
+  <button class="btn-primary" onclick="runAnomaly()">Suggest tests</button>
+  <div id="anom_out"></div>
+</section>
+
+<!-- ============== SLACK ============== -->
+<section data-panel="slack" class="panel hidden">
+  <h2 class="h2">Slack Bot</h2>
+  <p class="muted">After saving the Slack tokens in Settings, send a test message to any channel.</p>
+  <label>Channel ID <input id="slk_ch" placeholder="C01234567" /></label>
+  <label>Text <input id="slk_txt" value="Hello from AIinDbt 👋" /></label>
+  <button class="btn-primary" onclick="runSlackTest()">Send test</button>
+  <pre id="slk_out"></pre>
+  <hr class="my-4" />
+  <p class="muted">Event URL for your Slack app: <code id="slack_url"></code></p>
+</section>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
