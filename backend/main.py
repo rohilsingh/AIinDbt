@@ -7,14 +7,14 @@ import traceback
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import dbt_client
 from .state import SETTINGS, configured
 from .features import (
-    anomaly, chat, docs, health, incremental, lineage,
+    anomaly, bigquery_client, chat, docs, export, health, incremental, lineage,
     nl2sql, quality, router, scaffold, search, staging, teams, tests,
 )
 
@@ -258,6 +258,87 @@ class CommandIn(BaseModel):
 def run_command(p: CommandIn) -> dict:
     """Run a Teams-style slash command from the web UI, no Teams required."""
     return {"reply": router.dispatch(p.text)}
+
+
+# ---- autocomplete ----------------------------------------------------------
+
+@app.get("/api/models/list")
+def models_list() -> dict:
+    models_out = [
+        {"name": n.get("name"), "kind": "model",
+         "schema": n.get("schema"), "materialized": (n.get("config") or {}).get("materialized")}
+        for n in dbt_client.models()
+    ]
+    sources_out = [
+        {"name": n.get("name"), "kind": "source",
+         "source_name": n.get("source_name"), "schema": n.get("schema")}
+        for n in dbt_client.sources()
+    ]
+    return {
+        "models": models_out,
+        "sources": sources_out,
+        "all": [m["name"] for m in models_out] + [s["name"] for s in sources_out],
+    }
+
+
+# ---- export ----------------------------------------------------------------
+
+class ExportIn(BaseModel):
+    rows: list[dict]
+    columns: list[str]
+    filename: str = "export"
+    sheet: str = "Data"
+
+
+@app.post("/api/export/excel")
+def export_excel(p: ExportIn) -> Response:
+    data = export.to_excel(p.rows, p.columns, p.sheet)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{p.filename}.xlsx"'},
+    )
+
+
+# ---- BigQuery --------------------------------------------------------------
+
+class BQQueryIn(BaseModel):
+    sql: str
+    max_rows: int = 500
+
+
+@app.post("/api/bigquery/upload-key")
+async def bq_upload_key(file: UploadFile) -> dict:
+    raw = await file.read()
+    try:
+        sa = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, f"Service account JSON is invalid: {e}")
+    if sa.get("type") != "service_account":
+        raise HTTPException(400, "File does not look like a service account JSON (missing 'type': 'service_account').")
+    SETTINGS.bigquery_service_account = sa
+    SETTINGS.bigquery_project_id = sa.get("project_id", SETTINGS.bigquery_project_id)
+    return {"ok": True, "project_id": SETTINGS.bigquery_project_id}
+
+
+class BQProjectIn(BaseModel):
+    project_id: str
+
+
+@app.post("/api/bigquery/project")
+def bq_set_project(p: BQProjectIn) -> dict:
+    SETTINGS.bigquery_project_id = p.project_id
+    return {"ok": True, "project_id": p.project_id}
+
+
+@app.post("/api/bigquery/test")
+def bq_test() -> dict:
+    return bigquery_client.test_connection()
+
+
+@app.post("/api/bigquery/query")
+def bq_query(p: BQQueryIn) -> dict:
+    return bigquery_client.run_query(p.sql, p.max_rows)
 
 
 # ---- frontend --------------------------------------------------------------

@@ -1,18 +1,21 @@
-// ---- tab routing -----------------------------------------------------------
-const tabs = document.querySelectorAll(".tab");
-const panels = document.querySelectorAll(".panel");
+// ============================================================
+// app.js — boot, routing, API helper, feature wiring
+// ============================================================
+import { toast, esc, examplesBar, kpiCard, codeBlock, gradeBadge, spinner } from "./components/ui.js";
+import { DataTable } from "./components/table_tools.js";
+import { attachAutocomplete, warmCache } from "./components/autocomplete.js";
+import { ChatPanel, renderBookmarksDrawer, toggleBookmarksDrawer } from "./components/chat_panel.js";
+import { LineageViewer } from "./components/lineage_viewer.js";
+import { DocsViewer } from "./components/docs_viewer.js";
 
-function show(tab) {
-  tabs.forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
-  panels.forEach(p => p.classList.toggle("hidden", p.dataset.panel !== tab));
-}
-tabs.forEach(t => t.addEventListener("click", () => show(t.dataset.tab)));
-show("settings");
-
-// ---- helpers ---------------------------------------------------------------
+// ============================================================
+// API helper
+// ============================================================
 async function api(path, opts = {}) {
   const r = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers: opts.body && !(opts.body instanceof FormData)
+      ? { "Content-Type": "application/json" }
+      : {},
     ...opts,
   });
   const data = await r.json().catch(() => ({}));
@@ -20,246 +23,527 @@ async function api(path, opts = {}) {
   return data;
 }
 const $ = id => document.getElementById(id);
-const esc = s => (s ?? "").toString()
-  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function renderStatus(cfg) {
-  const items = [
-    ["LLM", cfg.llm], ["Project", cfg.manifest || cfg.dbt_cloud],
-    ["Warehouse", cfg.warehouse], ["Teams", cfg.teams],
-  ];
-  $("status-pill").innerHTML = items.map(([k, v]) =>
-    `<span class="${v ? 'ok' : 'bad'} text-white">${k} ${v ? '✓' : '✗'}</span>`
-  ).join("");
+// ============================================================
+// Sidebar routing
+// ============================================================
+function show(panelId) {
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".sidebar-item").forEach(i => i.classList.remove("active"));
+  const panel = $(`panel-${panelId}`);
+  if (panel) panel.classList.add("active");
+  const item = document.querySelector(`.sidebar-item[data-panel="${panelId}"]`);
+  if (item) item.classList.add("active");
+  const sub = document.querySelector(`.topbar-subtitle`);
+  if (sub && item) sub.textContent = item.querySelector(".label")?.textContent || "";
+  // close mobile sidebar
+  document.getElementById("sidebar")?.classList.remove("open");
 }
 
+document.querySelectorAll(".sidebar-item[data-panel]").forEach(item =>
+  item.addEventListener("click", () => show(item.dataset.panel))
+);
+
+$("hamburger")?.addEventListener("click", () =>
+  document.getElementById("sidebar")?.classList.toggle("open")
+);
+$("open-bookmarks")?.addEventListener("click", toggleBookmarksDrawer);
+$("close-bookmarks")?.addEventListener("click", toggleBookmarksDrawer);
+
+// ============================================================
+// Status bar
+// ============================================================
 async function loadStatus() {
-  const s = await api("/api/settings");
-  $("llm_base_url").value = s.llm_base_url || "";
-  $("llm_model").value = s.llm_model || "";
-  $("dbt_cloud_host").value = s.dbt_cloud_host || "";
-  $("dbt_cloud_account_id").value = s.dbt_cloud_account_id || "";
-  $("dbt_cloud_project_id").value = s.dbt_cloud_project_id || "";
-  $("warehouse_type") && ($("warehouse_type").value = s.warehouse_type || "");
-  renderStatus(s.configured);
-  $("teams_url").textContent = `${window.location.origin}/api/teams/events`;
+  try {
+    const s = await api("/api/settings");
+    const cfg = s.configured || {};
+    const dots = [
+      ["LLM", cfg.llm], ["Project", cfg.manifest || cfg.dbt_cloud],
+      ["BigQuery", cfg.bigquery], ["Teams", cfg.teams],
+    ];
+    const row = $("status-row");
+    if (row) row.innerHTML = dots.map(([l, ok]) =>
+      `<span class="status-dot ${ok ? "ok" : ""}">${l}</span>`
+    ).join("");
+    if (s.manifest_models) {
+      const badge = document.querySelector('.sidebar-item[data-panel="lineage"] .badge');
+      if (badge) badge.textContent = s.manifest_models;
+    }
+    // pre-fill visible settings fields (non-secret)
+    _setIfEl("llm_base_url", s.llm_base_url || "");
+    _setIfEl("llm_model", s.llm_model || "");
+    _setIfEl("dbt_cloud_host", s.dbt_cloud_host || "");
+    _setIfEl("dbt_cloud_account_id", s.dbt_cloud_account_id || "");
+    _setIfEl("dbt_cloud_project_id", s.dbt_cloud_project_id || "");
+    _setIfEl("bq_project_id", s.bigquery_project_id || "");
+    _setIfEl("teams_url_display", `${location.origin}/api/teams/events`);
+  } catch (_) {}
+  warmCache();
 }
+function _setIfEl(id, val) { const el = $(id); if (el) el.value = val; }
 loadStatus();
 
-// ---- settings --------------------------------------------------------------
-async function saveSettings() {
-  const body = {
-    llm_api_key: $("llm_api_key").value || undefined,
-    llm_base_url: $("llm_base_url").value,
-    llm_model: $("llm_model").value || undefined,
-    dbt_cloud_host: $("dbt_cloud_host").value || undefined,
-    dbt_cloud_account_id: $("dbt_cloud_account_id").value || undefined,
-    dbt_cloud_project_id: $("dbt_cloud_project_id").value || undefined,
-    dbt_cloud_token: $("dbt_cloud_token").value || undefined,
-    teams_outgoing_secret: $("teams_outgoing_secret").value || undefined,
-    teams_incoming_webhook: $("teams_incoming_webhook").value || undefined,
-  };
-  await api("/api/settings", { method: "POST", body: JSON.stringify(body) });
-  for (const f of ["manifest_file", "catalog_file"]) {
-    const file = $(f).files[0];
-    if (file) {
-      const fd = new FormData();
-      fd.append("file", file);
-      const path = f === "manifest_file" ? "/api/manifest" : "/api/catalog";
-      const r = await fetch(path, { method: "POST", body: fd });
-      if (!r.ok) alert(`upload failed for ${f}`);
+// ============================================================
+// SETTINGS
+// ============================================================
+$("save-settings")?.addEventListener("click", async () => {
+  try {
+    const body = {
+      llm_api_key: $("llm_api_key")?.value || undefined,
+      llm_base_url: $("llm_base_url")?.value,
+      llm_model: $("llm_model")?.value || undefined,
+      dbt_cloud_host: $("dbt_cloud_host")?.value || undefined,
+      dbt_cloud_account_id: $("dbt_cloud_account_id")?.value || undefined,
+      dbt_cloud_project_id: $("dbt_cloud_project_id")?.value || undefined,
+      dbt_cloud_token: $("dbt_cloud_token")?.value || undefined,
+      teams_outgoing_secret: $("teams_outgoing_secret")?.value || undefined,
+      teams_incoming_webhook: $("teams_incoming_webhook")?.value || undefined,
+    };
+    await api("/api/settings", { method: "POST", body: JSON.stringify(body) });
+    for (const [field, path] of [["manifest_file", "/api/manifest"], ["catalog_file", "/api/catalog"]]) {
+      const file = $(field)?.files[0];
+      if (file) {
+        const fd = new FormData(); fd.append("file", file);
+        const r = await fetch(path, { method: "POST", body: fd });
+        if (!r.ok) { toast(`Upload failed for ${field}`, "error"); continue; }
+        toast(`${field} uploaded`, "success");
+      }
     }
-  }
-  await loadStatus();
-  alert("Saved.");
-}
-window.saveSettings = saveSettings;
+    await loadStatus();
+    toast("Settings saved", "success");
+  } catch (e) { toast("Save failed: " + e.message, "error"); }
+});
 
-// ---- HEALTH (D3) -----------------------------------------------------------
+// ============================================================
+// HEALTH — D3
+// ============================================================
+$("load-health")?.addEventListener("click", loadHealth);
 async function loadHealth() {
-  const h = await api("/api/health");
-  if (!h.total_models) { $("health_out").innerHTML = "<p class='muted'>Upload a manifest first.</p>"; return; }
-  const kpi = (l, v) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
-  const grade = (g, n) => `<span class="grade-${g}">${g}: ${n}</span>`;
-  $("health_out").innerHTML = `
-    <div>${kpi("Models", h.total_models)}${kpi("Avg score", h.average_score)}${kpi("Fully documented", h.fully_documented)}${kpi("With tests", h.models_with_tests)}${kpi("Incremental", h.incremental_models)}</div>
-    <p class="my-3">${grade("A", h.by_grade.A)} · ${grade("B", h.by_grade.B)} · ${grade("C", h.by_grade.C)} · ${grade("D", h.by_grade.D)}</p>
-    <h3 class="h3">Worst offenders</h3>
-    ${renderTable(h.worst_offenders, ["name","score","grade","documentation_score","test_score","freshness_score"])}
-    <h3 class="h3 mt-4">Top performers</h3>
-    ${renderTable(h.top_performers, ["name","score","grade","documentation_score","test_score","freshness_score"])}
-  `;
+  try {
+    const h = await api("/api/health");
+    if (!h.total_models) { $("health_kpis").innerHTML = `<p style="color:#94a3b8">Upload a manifest first.</p>`; return; }
+    const g = h.by_grade || {};
+    const gradeColor = { A: "#15803d", B: "#1d4ed8", C: "#b45309", D: "#dc2626" };
+    $("health_kpis").innerHTML = `<div class="kpi-grid">
+      ${kpiCard(h.total_models, "Total Models")}
+      ${kpiCard(h.average_score, "Avg Score")}
+      ${kpiCard(h.fully_documented, "Fully Documented")}
+      ${kpiCard(h.models_with_tests, "With Tests")}
+      ${kpiCard(h.incremental_models, "Incremental")}
+      ${kpiCard(g.A || 0, "Grade A", gradeColor.A)}
+      ${kpiCard(g.B || 0, "Grade B", gradeColor.B)}
+      ${kpiCard(g.C || 0, "Grade C", gradeColor.C)}
+      ${kpiCard(g.D || 0, "Grade D", gradeColor.D)}
+    </div>`;
+    healthWorstTable.load(h.worst_offenders || []);
+    healthTopTable.load([...(h.top_performers || [])].reverse());
+  } catch (e) { toast(e.message, "error"); }
 }
-window.loadHealth = loadHealth;
+const healthWorstTable = new DataTable("health-worst-table", {
+  exportName: "health-worst",
+  columns: [
+    { key: "name", label: "Model" },
+    { key: "score", label: "Score" },
+    { key: "grade", label: "Grade", render: v => gradeBadge(v) },
+    { key: "documentation_score", label: "Docs" },
+    { key: "test_score", label: "Tests" },
+    { key: "freshness_score", label: "Freshness" },
+  ],
+});
+const healthTopTable = new DataTable("health-top-table", {
+  exportName: "health-top",
+  columns: [
+    { key: "name", label: "Model" },
+    { key: "score", label: "Score" },
+    { key: "grade", label: "Grade", render: v => gradeBadge(v) },
+    { key: "documentation_score", label: "Docs" },
+    { key: "test_score", label: "Tests" },
+  ],
+});
 
-// ---- QUALITY (C3) ----------------------------------------------------------
-async function loadQuality() {
-  const rows = await api("/api/quality");
-  $("quality_out").innerHTML = renderTable(rows,
-    ["name","score","grade","documentation_score","test_score","freshness_score","materialized"]);
-}
-window.loadQuality = loadQuality;
+// ============================================================
+// QUALITY — C3
+// ============================================================
+$("load-quality")?.addEventListener("click", async () => {
+  try {
+    const rows = await api("/api/quality");
+    qualityTable.load(rows);
+  } catch (e) { toast(e.message, "error"); }
+});
+const qualityTable = new DataTable("quality-table", {
+  exportName: "dbt-quality-scores",
+  columns: [
+    { key: "name", label: "Model" },
+    { key: "score", label: "Score" },
+    { key: "grade", label: "Grade", render: v => gradeBadge(v) },
+    { key: "documentation_score", label: "Docs (40)" },
+    { key: "test_score", label: "Tests (40)" },
+    { key: "freshness_score", label: "Fresh (20)" },
+    { key: "materialized", label: "Materialization" },
+  ],
+});
 
-function renderTable(rows, cols) {
-  if (!rows.length) return "<p class='muted'>No data.</p>";
-  const head = cols.map(c => `<th>${c}</th>`).join("");
-  const body = rows.map(r => "<tr>" + cols.map(c => {
-    if (c === "grade") return `<td class="grade-${r[c]}">${r[c]}</td>`;
-    return `<td>${esc(r[c])}</td>`;
-  }).join("") + "</tr>").join("");
-  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
-}
+// ============================================================
+// LINEAGE — D1
+// ============================================================
+const lineageViewer = new LineageViewer("lineage-net", "lineage-detail");
+$("load-lineage")?.addEventListener("click", async () => {
+  try {
+    const g = await api("/api/lineage");
+    lineageViewer.load(g);
+    toast(`Loaded ${g.nodes.length} nodes`, "success");
+  } catch (e) { toast(e.message, "error"); }
+});
+$("lineage-search")?.addEventListener("input", e => lineageViewer.search(e.target.value));
+$("lineage-fit")?.addEventListener("click", () => lineageViewer.fitView());
+$("lineage-zoomin")?.addEventListener("click", () => lineageViewer.zoomIn());
+$("lineage-zoomout")?.addEventListener("click", () => lineageViewer.zoomOut());
+$("lineage-physics")?.addEventListener("change", e => lineageViewer.setPhysics(e.target.checked));
 
-// ---- LINEAGE (D1) ----------------------------------------------------------
-let lineageNetwork, lineageData;
-async function loadLineage() {
-  const g = await api("/api/lineage");
-  const colorFor = k => k === "source" ? "#fbbf24" : k === "seed" ? "#a78bfa" : "#60a5fa";
-  const nodes = g.nodes.map(n => ({
-    id: n.id, label: n.name, title: `${n.kind} — ${n.description || ""}`,
-    color: colorFor(n.kind), shape: n.kind === "source" ? "box" : "ellipse",
-  }));
-  const edges = g.edges.map(e => ({ from: e.from, to: e.to, arrows: "to" }));
-  lineageData = { nodes, edges, raw: g };
-  const container = $("lineage_net");
-  lineageNetwork = new vis.Network(container, {
-    nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges),
-  }, {
-    layout: { hierarchical: { direction: "LR", sortMethod: "directed", levelSeparation: 200 } },
-    physics: false,
-    nodes: { font: { size: 12 } },
-    edges: { smooth: { type: "cubicBezier" } },
-  });
-}
-function filterLineage() {
-  if (!lineageData) return;
-  const q = $("lineage_filter").value.toLowerCase();
-  const ns = lineageData.raw.nodes.filter(n =>
-    !q || n.name.toLowerCase().includes(q));
-  const ids = new Set(ns.map(n => n.id));
-  const es = lineageData.raw.edges.filter(e => ids.has(e.from) && ids.has(e.to));
-  lineageNetwork.setData({
-    nodes: new vis.DataSet(ns.map(n => ({ id: n.id, label: n.name, title: n.description }))),
-    edges: new vis.DataSet(es.map(e => ({ from: e.from, to: e.to, arrows: "to" }))),
-  });
-}
-window.loadLineage = loadLineage;
-window.filterLineage = filterLineage;
+// ============================================================
+// COLUMN LINEAGE — D2
+// ============================================================
+$("run-collineage")?.addEventListener("click", async () => {
+  const model = $("col_model")?.value.trim();
+  const col = $("col_column")?.value.trim();
+  if (!model || !col) { toast("Enter model and column", "error"); return; }
+  try {
+    const r = await api(`/api/lineage/column?model=${encodeURIComponent(model)}&column=${encodeURIComponent(col)}`);
+    const trail = r.trail || [];
+    if (!trail.length) { $("col_out").textContent = "No lineage trail found."; return; }
+    const lines = trail.map(step => {
+      const srcs = (step.from || []).map(([t, c]) => `${t || "?"}.${c}`).join(", ") || "(literal/derived)";
+      const note = step.note ? ` — ${step.note}` : "";
+      return `${step.model}.${step.column}  ←  ${srcs}${note}`;
+    });
+    $("col_out").textContent = lines.join("\n");
+  } catch (e) { toast(e.message, "error"); }
+});
+attachAutocomplete($("col_model"), { filterKind: "model" });
 
-// ---- COLUMN LINEAGE (D2) ---------------------------------------------------
-async function runColumnLineage() {
-  const r = await api(`/api/lineage/column?model=${encodeURIComponent($("col_model").value)}&column=${encodeURIComponent($("col_column").value)}`);
-  $("col_out").textContent = JSON.stringify(r, null, 2);
-}
-window.runColumnLineage = runColumnLineage;
+// ============================================================
+// SEARCH — B3
+// ============================================================
+_addExamples("search-examples", [
+  "monthly revenue", "customer lifetime value", "active users", "orders by country",
+], v => { if ($("search_q")) $("search_q").value = v; });
+$("run-search")?.addEventListener("click", async () => {
+  const q = $("search_q")?.value.trim();
+  if (!q) return;
+  try {
+    const rows = await api(`/api/search?q=${encodeURIComponent(q)}&limit=20`);
+    searchTable.load(rows);
+  } catch (e) { toast(e.message, "error"); }
+});
+const searchTable = new DataTable("search-table", {
+  exportName: "search-results",
+  columns: [
+    { key: "name", label: "Model" },
+    { key: "kind", label: "Kind" },
+    { key: "description", label: "Description" },
+    { key: "score", label: "Score" },
+  ],
+});
 
-// ---- SEARCH (B3) -----------------------------------------------------------
-async function runSearch() {
-  const q = $("search_q").value;
-  const rows = await api("/api/search?q=" + encodeURIComponent(q));
-  $("search_out").innerHTML = renderTable(rows, ["name","kind","description","score"]);
-}
-window.runSearch = runSearch;
+// ============================================================
+// CHAT — B1
+// ============================================================
+_addExamples("chat-examples", [
+  "Where is monthly active users calculated?",
+  "Which models depend on stg_stripe__charges?",
+  "What columns does fct_orders have?",
+  "How is revenue defined?",
+], v => { if ($("chat_input")) { $("chat_input").value = v; } });
+const chatPanel = new ChatPanel("chat-history", "chat_input", "chat_send");
+chatPanel.onSend(async q => api("/api/chat", { method: "POST", body: JSON.stringify({ question: q }) }));
 
-// ---- CHAT (B1) -------------------------------------------------------------
-async function runChat() {
-  const r = await api("/api/chat", { method: "POST", body: JSON.stringify({ question: $("chat_q").value }) });
-  $("chat_out").innerHTML = `<div class="card"><b>Answer</b><pre>${esc(r.answer)}</pre><details><summary>Context used</summary><pre>${esc(r.context_used)}</pre></details></div>`;
-}
-window.runChat = runChat;
+// ============================================================
+// NL2SQL — B2
+// ============================================================
+_addExamples("nl2sql-examples", [
+  "Top 10 customers by revenue last quarter",
+  "Monthly active users by country",
+  "Churn rate by plan tier",
+  "Average order value by product category",
+], v => { if ($("nl_q")) $("nl_q").value = v; });
+$("run-nl2sql")?.addEventListener("click", async () => {
+  const q = $("nl_q")?.value.trim();
+  if (!q) return;
+  try {
+    const r = await api("/api/nl2sql", { method: "POST", body: JSON.stringify({ question: q, dialect: $("nl_dialect")?.value || "snowflake" }) });
+    $("nl_out").textContent = r.sql;
+    // show BigQuery run button if configured
+    const bqBtn = $("nl-run-bq");
+    if (bqBtn) { bqBtn.style.display = "inline-flex"; bqBtn.dataset.sql = r.sql; }
+  } catch (e) { toast(e.message, "error"); }
+});
+$("nl-run-bq")?.addEventListener("click", async function () {
+  const sql = this.dataset.sql;
+  if (!sql) return;
+  try {
+    const r = await api("/api/bigquery/query", { method: "POST", body: JSON.stringify({ sql }) });
+    renderBQResult("nl-bq-result", r);
+  } catch (e) { toast(e.message, "error"); }
+});
 
-// ---- NL2SQL (B2) -----------------------------------------------------------
-async function runNL2SQL() {
-  const r = await api("/api/nl2sql", { method: "POST", body: JSON.stringify({ question: $("nl_q").value, dialect: $("nl_dialect").value }) });
-  $("nl_out").textContent = r.sql;
-}
-window.runNL2SQL = runNL2SQL;
+// ============================================================
+// DOCS — A1
+// ============================================================
+$("load-undocumented")?.addEventListener("click", async () => {
+  try {
+    const rows = await api("/api/docs/undocumented");
+    undocTable.load(rows);
+  } catch (e) { toast(e.message, "error"); }
+});
+const undocTable = new DataTable("undoc-table", {
+  exportName: "undocumented-models",
+  columns: [
+    { key: "name", label: "Model" },
+    { key: "description", label: "Current description" },
+    { key: "column_count", label: "Columns" },
+    { key: "documented_columns", label: "Documented" },
+  ],
+});
+attachAutocomplete($("doc_model"), { filterKind: "model" });
+$("run-docs")?.addEventListener("click", async () => {
+  const model = $("doc_model")?.value.trim();
+  if (!model) return;
+  $("doc_out").innerHTML = spinner() + " Generating…";
+  try {
+    const r = await api("/api/docs/generate", { method: "POST", body: JSON.stringify({ model }) });
+    $("doc_out").innerHTML = codeBlock(r.yaml, "yaml");
+  } catch (e) { toast(e.message, "error"); $("doc_out").textContent = ""; }
+});
 
-// ---- DOCS (A1) -------------------------------------------------------------
-async function loadUndocumented() {
-  const rows = await api("/api/docs/undocumented");
-  $("undoc_out").innerHTML = renderTable(rows, ["name","description","column_count","documented_columns"]);
-}
-async function runDocs() {
-  const r = await api("/api/docs/generate", { method: "POST", body: JSON.stringify({ model: $("doc_model").value }) });
-  $("doc_out").textContent = r.yaml;
-}
-window.loadUndocumented = loadUndocumented;
-window.runDocs = runDocs;
+// ============================================================
+// SCAFFOLD — A2
+// ============================================================
+_addExamples("scaffold-examples", [
+  "Daily revenue by country joining orders and customers",
+  "Monthly active users grouped by plan tier",
+  "Cohort retention table from events",
+  "Inventory levels by warehouse and SKU",
+], v => { if ($("scaf_brief")) $("scaf_brief").value = v; });
+$("run-scaffold")?.addEventListener("click", async () => {
+  const brief = $("scaf_brief")?.value.trim();
+  if (!brief) return;
+  $("scaf_out").innerHTML = spinner() + " Generating…";
+  try {
+    const r = await api("/api/scaffold", { method: "POST", body: JSON.stringify({
+      brief, layer: $("scaf_layer")?.value, materialization: $("scaf_mat")?.value,
+    }) });
+    $("scaf_out").innerHTML = `
+      <div class="card"><div class="card-title">${esc(r.name)}.sql</div>${codeBlock(r.sql, "sql")}</div>
+      <div class="card"><div class="card-title">schema.yml</div>${codeBlock(r.yaml, "yaml")}</div>`;
+  } catch (e) { toast(e.message, "error"); $("scaf_out").textContent = ""; }
+});
 
-// ---- SCAFFOLD (A2) ---------------------------------------------------------
-async function runScaffold() {
-  const r = await api("/api/scaffold", { method: "POST", body: JSON.stringify({
-    brief: $("scaf_brief").value, layer: $("scaf_layer").value, materialization: $("scaf_mat").value,
-  }) });
-  $("scaf_out").innerHTML = `<div class="card"><h3 class="h3">${esc(r.name)}.sql</h3><pre>${esc(r.sql)}</pre><h3 class="h3">schema.yml</h3><pre>${esc(r.yaml)}</pre></div>`;
-}
-window.runScaffold = runScaffold;
-
-// ---- STAGING (A3) ----------------------------------------------------------
-async function runStaging() {
-  const raw = $("stg_cols").value.trim();
+// ============================================================
+// STAGING — A3
+// ============================================================
+_addExamples("staging-examples", [
+  "stripe · charges", "salesforce · accounts", "postgres · users", "shopify · orders",
+], v => {
+  const [src, tbl] = v.split("·").map(s => s.trim());
+  if ($("stg_src")) $("stg_src").value = src;
+  if ($("stg_tbl")) $("stg_tbl").value = tbl;
+});
+attachAutocomplete($("stg_src"), { filterKind: "source" });
+$("run-staging")?.addEventListener("click", async () => {
+  const raw = $("stg_cols")?.value.trim();
   let columns = null;
   if (raw) {
     columns = raw.split("\n").map(l => {
-      const [name, type] = l.split(",").map(s => s.trim());
+      const [name, type = ""] = l.split(",").map(s => s.trim());
       return { name, type };
     }).filter(c => c.name);
   }
-  const r = await api("/api/staging", { method: "POST", body: JSON.stringify({
-    source_name: $("stg_src").value, table_name: $("stg_tbl").value, columns,
-  }) });
-  $("stg_out").innerHTML = `<div class="card"><h3 class="h3">${esc(r.name)}.sql</h3><pre>${esc(r.sql)}</pre><h3 class="h3">schema.yml</h3><pre>${esc(r.yaml)}</pre></div>`;
-}
-window.runStaging = runStaging;
+  $("stg_out").innerHTML = spinner() + " Generating…";
+  try {
+    const r = await api("/api/staging", { method: "POST", body: JSON.stringify({
+      source_name: $("stg_src")?.value, table_name: $("stg_tbl")?.value, columns,
+    }) });
+    $("stg_out").innerHTML = `
+      <div class="card"><div class="card-title">${esc(r.name)}.sql</div>${codeBlock(r.sql, "sql")}</div>
+      <div class="card"><div class="card-title">schema.yml</div>${codeBlock(r.yaml, "yaml")}</div>`;
+  } catch (e) { toast(e.message, "error"); $("stg_out").textContent = ""; }
+});
 
-// ---- INCREMENTAL (A4) ------------------------------------------------------
-async function loadIncrAnalyze() {
-  const rows = await api("/api/incremental/analyze");
-  $("incr_table").innerHTML = renderTable(rows,
-    ["name","current_materialization","row_count","timestamp_columns_found","incremental_score","recommend_incremental"]);
-}
-async function runIncrRewrite() {
-  const r = await api("/api/incremental/rewrite", { method: "POST", body: JSON.stringify({
-    model: $("incr_model").value, ts_column: $("incr_ts").value, strategy: $("incr_strategy").value,
-  }) });
-  $("incr_out").innerHTML = `<div class="card"><pre>${esc(r.config_block || "")}</pre><pre>${esc(r.sql || "")}</pre><p>${esc(r.notes || "")}</p></div>`;
-}
-window.loadIncrAnalyze = loadIncrAnalyze;
-window.runIncrRewrite = runIncrRewrite;
+// ============================================================
+// INCREMENTAL — A4
+// ============================================================
+$("load-incr-analyze")?.addEventListener("click", async () => {
+  try { const rows = await api("/api/incremental/analyze"); incrTable.load(rows); }
+  catch (e) { toast(e.message, "error"); }
+});
+const incrTable = new DataTable("incr-table", {
+  exportName: "incremental-candidates",
+  columns: [
+    { key: "name", label: "Model" },
+    { key: "current_materialization", label: "Materialization" },
+    { key: "row_count", label: "Row count" },
+    { key: "incremental_score", label: "Score" },
+    { key: "recommend_incremental", label: "Recommended", render: v => v ? "✅ Yes" : "—" },
+  ],
+});
+attachAutocomplete($("incr_model"), { filterKind: "model" });
+$("run-incr-rewrite")?.addEventListener("click", async () => {
+  const model = $("incr_model")?.value.trim();
+  if (!model) return;
+  $("incr_out").innerHTML = spinner() + " Rewriting…";
+  try {
+    const r = await api("/api/incremental/rewrite", { method: "POST", body: JSON.stringify({
+      model, ts_column: $("incr_ts")?.value, strategy: $("incr_strategy")?.value,
+    }) });
+    $("incr_out").innerHTML = `
+      <div class="card">${codeBlock((r.config_block || "") + "\n\n" + (r.sql || ""), "sql")}</div>
+      <p style="color:#64748b;font-size:.85rem;margin-top:.5rem">${esc(r.notes || "")}</p>`;
+  } catch (e) { toast(e.message, "error"); $("incr_out").textContent = ""; }
+});
 
-// ---- TESTS (C1) ------------------------------------------------------------
-async function runTests() {
-  const r = await api("/api/tests/generate", { method: "POST", body: JSON.stringify({
-    model: $("test_model").value, csv: $("test_csv").value,
-  }) });
-  $("test_out").textContent = r.yaml;
-}
-window.runTests = runTests;
+// ============================================================
+// TESTS — C1
+// ============================================================
+_addExamples("tests-examples", [
+  "dim_customers · id,email,status,created_at",
+  "fct_orders · order_id,customer_id,amount,status",
+], v => {
+  const [model, cols] = v.split("·").map(s => s.trim());
+  if ($("test_model")) $("test_model").value = model;
+  if ($("test_csv")) $("test_csv").value = cols.split(",").join(",") + "\n(paste your CSV sample below)";
+});
+attachAutocomplete($("test_model"), { filterKind: "model" });
+$("run-tests")?.addEventListener("click", async () => {
+  const model = $("test_model")?.value.trim();
+  const csv = $("test_csv")?.value.trim();
+  if (!model || !csv) { toast("Enter model name and CSV sample", "error"); return; }
+  $("test_out").textContent = "Generating…";
+  try {
+    const r = await api("/api/tests/generate", { method: "POST", body: JSON.stringify({ model, csv }) });
+    $("test_out").innerHTML = codeBlock(r.yaml, "yaml");
+  } catch (e) { toast(e.message, "error"); $("test_out").textContent = ""; }
+});
 
-// ---- ANOMALY (C2) ----------------------------------------------------------
-async function runAnomaly() {
-  const m = $("anom_model").value.trim();
-  const r = await api("/api/anomaly/suggest" + (m ? `?model=${encodeURIComponent(m)}` : ""));
-  if (Array.isArray(r)) {
-    $("anom_out").innerHTML = r.map(x => `<div class="card"><h3 class="h3">${esc(x.model)}</h3><pre>${esc(x.yaml)}</pre></div>`).join("");
-  } else {
-    $("anom_out").innerHTML = `<div class="card"><pre>${esc(r.yaml)}</pre></div>`;
+// ============================================================
+// ANOMALY — C2
+// ============================================================
+attachAutocomplete($("anom_model"), { filterKind: "model" });
+$("run-anomaly")?.addEventListener("click", async () => {
+  const m = $("anom_model")?.value.trim();
+  try {
+    const r = await api(`/api/anomaly/suggest${m ? "?model=" + encodeURIComponent(m) : ""}`);
+    const items = Array.isArray(r) ? r : [r];
+    $("anom_out").innerHTML = items.map(x =>
+      `<div class="card"><div class="card-title">${esc(x.model)}</div>
+       ${codeBlock(x.yaml, "yaml")}
+       <p style="font-size:.78rem;color:#64748b;margin-top:.5rem">Requires: <code>${x.package_required}</code></p></div>`
+    ).join("");
+  } catch (e) { toast(e.message, "error"); }
+});
+
+// ============================================================
+// TEAMS — E2
+// ============================================================
+_addExamples("cmd-examples", [
+  "/help", "/health", "/quality 5", "/sql top customers by revenue",
+  "/docs dim_customers", "/anomaly fct_orders",
+], v => { if ($("cmd_in")) $("cmd_in").value = v; });
+$("run-command")?.addEventListener("click", async () => {
+  const text = $("cmd_in")?.value.trim();
+  if (!text) return;
+  $("cmd_out").textContent = "Running…";
+  try {
+    const r = await api("/api/command", { method: "POST", body: JSON.stringify({ text }) });
+    $("cmd_out").textContent = r.reply;
+  } catch (e) { toast(e.message, "error"); }
+});
+$("run-teams-test")?.addEventListener("click", async () => {
+  const text = $("tm_txt")?.value;
+  try {
+    const r = await api("/api/teams/test", { method: "POST", body: JSON.stringify({ text }) });
+    $("tm_out").textContent = JSON.stringify(r, null, 2);
+  } catch (e) { toast(e.message, "error"); }
+});
+
+// ============================================================
+// BIGQUERY
+// ============================================================
+$("bq-upload-key")?.addEventListener("click", async () => {
+  const file = $("bq_key_file")?.files[0];
+  if (!file) { toast("Select a service account JSON file", "error"); return; }
+  const fd = new FormData(); fd.append("file", file);
+  try {
+    const r = await fetch("/api/bigquery/upload-key", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error);
+    _setIfEl("bq_project_id", d.project_id || "");
+    toast("Service account uploaded — project: " + d.project_id, "success");
+    await loadStatus();
+  } catch (e) { toast(e.message, "error"); }
+});
+$("bq-set-project")?.addEventListener("click", async () => {
+  const pid = $("bq_project_id")?.value.trim();
+  if (!pid) return;
+  try {
+    await api("/api/bigquery/project", { method: "POST", body: JSON.stringify({ project_id: pid }) });
+    toast("Project ID saved", "success");
+    await loadStatus();
+  } catch (e) { toast(e.message, "error"); }
+});
+$("bq-test")?.addEventListener("click", async () => {
+  try {
+    const r = await api("/api/bigquery/test", { method: "POST", body: "{}" });
+    $("bq_status").textContent = `✅ Connected to ${r.project} — datasets: ${r.sample_datasets?.join(", ")}`;
+    $("bq_status").style.color = "#15803d";
+  } catch (e) {
+    $("bq_status").textContent = "❌ " + e.message;
+    $("bq_status").style.color = "#dc2626";
   }
-}
-window.runAnomaly = runAnomaly;
+});
+_addExamples("bq-examples", [
+  "SELECT * FROM `project.dataset.table` LIMIT 100",
+  "SELECT DATE(created_at), COUNT(*) as n FROM orders GROUP BY 1 ORDER BY 1 DESC",
+], v => { if ($("bq_sql")) $("bq_sql").value = v; });
+$("run-bq-query")?.addEventListener("click", async () => {
+  const sql = $("bq_sql")?.value.trim();
+  if (!sql) return;
+  $("bq_result").innerHTML = spinner() + " Running…";
+  try {
+    const r = await api("/api/bigquery/query", { method: "POST", body: JSON.stringify({ sql }) });
+    renderBQResult("bq_result", r);
+  } catch (e) { toast(e.message, "error"); $("bq_result").innerHTML = ""; }
+});
 
-// ---- TEAMS (E2) ------------------------------------------------------------
-async function runCommand() {
-  const r = await api("/api/command", { method: "POST", body: JSON.stringify({ text: $("cmd_in").value }) });
-  $("cmd_out").textContent = r.reply;
+function renderBQResult(containerId, r) {
+  const el = $(containerId);
+  if (!el) return;
+  const cols = (r.schema || []).map(f => ({ key: f.name, label: `${f.name} (${f.type})` }));
+  const infoHtml = `<div class="bq-result-info">
+    <span>Rows: <strong>${r.rows?.length ?? 0}${r.truncated ? "+" : ""}</strong></span>
+    ${r.bytes_processed ? `<span>Scanned: <strong>${(r.bytes_processed / 1e6).toFixed(1)} MB</strong></span>` : ""}
+    ${r.truncated ? `<span style="color:#b45309">⚠ Results truncated</span>` : ""}
+  </div>`;
+  const tableId = `bq-tbl-${Date.now()}`;
+  el.innerHTML = infoHtml + `<div id="${tableId}"></div>`;
+  const tbl = new DataTable(tableId, { columns: cols, exportName: "bigquery-result" });
+  tbl.load(r.rows || []);
 }
-window.runCommand = runCommand;
+window.renderBQResult = renderBQResult;
 
-async function runTeamsTest() {
-  const r = await api("/api/teams/test", { method: "POST", body: JSON.stringify({
-    text: $("tm_txt").value,
-  }) });
-  $("tm_out").textContent = JSON.stringify(r, null, 2);
+// ============================================================
+// DOCS VIEWER
+// ============================================================
+new DocsViewer("docs-sidebar-nav", "docs-content-area", "docs-search");
+
+// ============================================================
+// Helper: inject examples bar into a container
+// ============================================================
+function _addExamples(containerId, examples, onPick) {
+  const el = $(containerId);
+  if (!el) return;
+  el.appendChild(examplesBar(examples, onPick));
 }
-window.runTeamsTest = runTeamsTest;
+
+// Start on health panel
+show("health");
+loadHealth();

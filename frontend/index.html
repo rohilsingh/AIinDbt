@@ -1,273 +1,555 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>AIinDbt — Unified AI Copilot for dbt</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AIinDbt</title>
+<link rel="stylesheet" href="/static/styles.css"/>
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-<link rel="stylesheet" href="/static/styles.css" />
 </head>
-<body class="bg-slate-50 text-slate-900">
+<body>
 
-<header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between shadow">
-  <div>
-    <h1 class="text-2xl font-bold">AIinDbt</h1>
-    <p class="text-xs text-slate-400">Unified AI copilot for dbt — docs, tests, lineage, NL-SQL, Slack bot</p>
+<button id="hamburger" aria-label="Menu">☰</button>
+<div id="toast-container"></div>
+
+<!-- ============================================================
+     BOOKMARKS DRAWER
+     ============================================================ -->
+<aside id="bookmarks-drawer">
+  <div class="drawer-header">
+    <h2>🔖 Bookmarks</h2>
+    <button id="close-bookmarks" class="btn-ghost">✕</button>
   </div>
-  <div id="status-pill" class="text-xs"></div>
-</header>
+  <div class="drawer-body" id="bookmarks-body"></div>
+</aside>
 
-<nav class="border-b bg-white px-6 flex flex-wrap gap-1 sticky top-0 z-10">
-  <button class="tab" data-tab="settings">⚙ Settings</button>
-  <button class="tab" data-tab="health">📊 Health (D3)</button>
-  <button class="tab" data-tab="quality">🎯 Quality (C3)</button>
-  <button class="tab" data-tab="lineage">🌐 Lineage (D1)</button>
-  <button class="tab" data-tab="collineage">🧬 Column Lineage (D2)</button>
-  <button class="tab" data-tab="search">🔎 Search (B3)</button>
-  <button class="tab" data-tab="chat">💬 Chat (B1)</button>
-  <button class="tab" data-tab="nl2sql">🗣 NL→SQL (B2)</button>
-  <button class="tab" data-tab="docs">📝 Docs (A1)</button>
-  <button class="tab" data-tab="scaffold">🏗 Scaffold (A2)</button>
-  <button class="tab" data-tab="staging">🧱 Staging (A3)</button>
-  <button class="tab" data-tab="incremental">⚡ Incremental (A4)</button>
-  <button class="tab" data-tab="tests">✅ Tests (C1)</button>
-  <button class="tab" data-tab="anomaly">🚨 Anomaly (C2)</button>
-  <button class="tab" data-tab="teams">💼 Teams (E2)</button>
-</nav>
+<!-- ============================================================
+     APP SHELL
+     ============================================================ -->
+<div class="app-shell">
 
-<main class="p-6 max-w-7xl mx-auto">
+  <!-- SIDEBAR -->
+  <aside id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">AI</div>
+      <div>
+        <h1>AIinDbt</h1>
+        <p>AI Copilot for dbt</p>
+      </div>
+    </div>
 
-<!-- ============== SETTINGS ============== -->
-<section data-panel="settings" class="panel">
-  <h2 class="h2">Settings</h2>
-  <p class="muted">Nothing is written to disk — settings live in the server process memory only.</p>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Overview</div>
+      <div class="sidebar-item active" data-panel="health"><span class="icon">📊</span><span class="label">Health Dashboard</span></div>
+      <div class="sidebar-item" data-panel="quality"><span class="icon">🎯</span><span class="label">Quality Scores</span></div>
+    </div>
 
-  <div class="card">
-    <h3 class="h3">LLM (Claude via Cline / Anthropic / OpenRouter)</h3>
-    <p class="muted">Paste your <b>Cline key</b> (or Anthropic / OpenRouter key). For Cline, set the base URL to your Cline gateway endpoint; for direct Anthropic, leave it blank.</p>
-    <label>API key <input id="llm_api_key" type="password" placeholder="sk-..." /></label>
-    <label>Base URL (optional) <input id="llm_base_url" placeholder="https://openrouter.ai/api/v1 — or blank for Anthropic" /></label>
-    <label>Model <input id="llm_model" placeholder="claude-sonnet-4-6" /></label>
-  </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Generation</div>
+      <div class="sidebar-item" data-panel="docs"><span class="icon">📝</span><span class="label">AI Docs</span></div>
+      <div class="sidebar-item" data-panel="scaffold"><span class="icon">🏗</span><span class="label">Model Scaffold</span></div>
+      <div class="sidebar-item" data-panel="staging"><span class="icon">🧱</span><span class="label">Staging Layer</span></div>
+      <div class="sidebar-item" data-panel="incremental"><span class="icon">⚡</span><span class="label">Incremental Advisor</span></div>
+    </div>
 
-  <div class="card">
-    <h3 class="h3">dbt project — upload manifest</h3>
-    <p class="muted">Run <code>dbt parse</code> (or <code>dbt docs generate</code>) locally and upload the resulting <code>target/manifest.json</code>. Optionally also upload <code>target/catalog.json</code> for row-count signals.</p>
-    <label>manifest.json <input id="manifest_file" type="file" accept=".json" /></label>
-    <label>catalog.json (optional) <input id="catalog_file" type="file" accept=".json" /></label>
-  </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Chat & Search</div>
+      <div class="sidebar-item" data-panel="chat"><span class="icon">💬</span><span class="label">Chat with Project</span></div>
+      <div class="sidebar-item" data-panel="nl2sql"><span class="icon">🗣</span><span class="label">NL → SQL</span></div>
+      <div class="sidebar-item" data-panel="search"><span class="icon">🔎</span><span class="label">Semantic Search</span></div>
+    </div>
 
-  <div class="card">
-    <h3 class="h3">dbt Cloud (optional alternative to manifest upload)</h3>
-    <label>Host <input id="dbt_cloud_host" placeholder="cloud.getdbt.com" /></label>
-    <label>Account ID <input id="dbt_cloud_account_id" /></label>
-    <label>Project ID <input id="dbt_cloud_project_id" /></label>
-    <label>Service Token <input id="dbt_cloud_token" type="password" /></label>
-  </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Testing</div>
+      <div class="sidebar-item" data-panel="tests"><span class="icon">✅</span><span class="label">Test Generator</span></div>
+      <div class="sidebar-item" data-panel="anomaly"><span class="icon">🚨</span><span class="label">Anomaly Detection</span></div>
+    </div>
 
-  <div class="card">
-    <h3 class="h3">Microsoft Teams (optional, for E2)</h3>
-    <p class="muted">Two ways to wire Teams — use either or both:</p>
-    <label>Outgoing Webhook HMAC secret <input id="teams_outgoing_secret" type="password" placeholder="base64-encoded secret from Teams" /></label>
-    <label>Incoming Webhook URL <input id="teams_incoming_webhook" placeholder="https://outlook.office.com/webhook/..." /></label>
-    <p class="muted">
-      <b>Outgoing</b> (lets users @mention the bot in a channel): in Teams →
-      channel ⋯ → Connectors → Outgoing Webhooks → set callback URL to
-      <code>POST /api/teams/events</code>, copy the HMAC secret here.<br>
-      <b>Incoming</b> (lets the app push messages into a channel): channel ⋯ →
-      Connectors → Incoming Webhook, paste the URL above.
-    </p>
-  </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Lineage</div>
+      <div class="sidebar-item" data-panel="lineage"><span class="icon">🌐</span><span class="label">Lineage Graph</span><span class="badge" id="lineage-badge">0</span></div>
+      <div class="sidebar-item" data-panel="collineage"><span class="icon">🧬</span><span class="label">Column Lineage</span></div>
+    </div>
 
-  <button class="btn-primary" onclick="saveSettings()">Save settings</button>
-</section>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Integrations</div>
+      <div class="sidebar-item" data-panel="teams"><span class="icon">💼</span><span class="label">Microsoft Teams</span></div>
+      <div class="sidebar-item" data-panel="bigquery"><span class="icon">🔗</span><span class="label">BigQuery</span></div>
+    </div>
 
-<!-- ============== HEALTH ============== -->
-<section data-panel="health" class="panel hidden">
-  <h2 class="h2">Model Health Dashboard</h2>
-  <button class="btn" onclick="loadHealth()">Refresh</button>
-  <div id="health_out"></div>
-</section>
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">System</div>
+      <div class="sidebar-item" data-panel="settings"><span class="icon">⚙</span><span class="label">Settings</span></div>
+      <div class="sidebar-item" data-panel="apidocs"><span class="icon">📖</span><span class="label">Documentation</span></div>
+    </div>
 
-<!-- ============== QUALITY ============== -->
-<section data-panel="quality" class="panel hidden">
-  <h2 class="h2">Data Quality Scores</h2>
-  <button class="btn" onclick="loadQuality()">Refresh</button>
-  <div id="quality_out"></div>
-</section>
+    <div class="sidebar-footer">
+      <div class="status-row" id="status-row"></div>
+    </div>
+  </aside>
 
-<!-- ============== LINEAGE ============== -->
-<section data-panel="lineage" class="panel hidden">
-  <h2 class="h2">Interactive Lineage</h2>
-  <button class="btn" onclick="loadLineage()">Refresh graph</button>
-  <input id="lineage_filter" placeholder="filter by name…" oninput="filterLineage()" class="ml-2 w-64" />
-  <div id="lineage_net" style="height: 640px; border:1px solid #ddd; margin-top:1rem; background:#fff;"></div>
-</section>
+  <!-- MAIN -->
+  <div id="main-content">
+    <header class="topbar">
+      <div>
+        <div class="topbar-title">AIinDbt</div>
+        <div class="topbar-subtitle">Health Dashboard</div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-secondary btn-sm" id="open-bookmarks">🔖 Bookmarks</button>
+      </div>
+    </header>
 
-<!-- ============== COLUMN LINEAGE ============== -->
-<section data-panel="collineage" class="panel hidden">
-  <h2 class="h2">Column-Level Lineage</h2>
-  <label>Model <input id="col_model" /></label>
-  <label>Column <input id="col_column" /></label>
-  <button class="btn-primary" onclick="runColumnLineage()">Trace</button>
-  <pre id="col_out"></pre>
-</section>
+    <div class="content-area">
 
-<!-- ============== SEARCH ============== -->
-<section data-panel="search" class="panel hidden">
-  <h2 class="h2">Semantic Search</h2>
-  <input id="search_q" placeholder="e.g. revenue by country" class="w-96" />
-  <button class="btn-primary" onclick="runSearch()">Search</button>
-  <div id="search_out"></div>
-</section>
+      <!-- ======== HEALTH — D3 ======== -->
+      <div id="panel-health" class="panel active">
+        <div class="panel-title">📊 Model Health Dashboard</div>
+        <div class="panel-desc">Project-wide overview: documentation coverage, test adoption, quality grades.</div>
+        <div class="btn-group" style="margin-bottom:1rem">
+          <button class="btn btn-primary" id="load-health">Refresh</button>
+          <button class="btn btn-secondary no-print" onclick="window.print()">🖨 Print PDF</button>
+        </div>
+        <div id="health_kpis"></div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Worst Offenders</div></div>
+          <div id="health-worst-table"></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Top Performers</div></div>
+          <div id="health-top-table"></div>
+        </div>
+      </div>
 
-<!-- ============== CHAT ============== -->
-<section data-panel="chat" class="panel hidden">
-  <h2 class="h2">Chat with your dbt project</h2>
-  <textarea id="chat_q" rows="3" placeholder="Where do we calculate monthly active users?"></textarea>
-  <button class="btn-primary" onclick="runChat()">Ask</button>
-  <div id="chat_out"></div>
-</section>
+      <!-- ======== QUALITY — C3 ======== -->
+      <div id="panel-quality" class="panel">
+        <div class="panel-title">🎯 Data Quality Scores</div>
+        <div class="panel-desc">Per-model health scores across documentation, tests, and freshness. Export to Excel for stakeholder reporting.</div>
+        <div class="btn-group" style="margin-bottom:1rem">
+          <button class="btn btn-primary" id="load-quality">Refresh scores</button>
+        </div>
+        <div id="quality-table"></div>
+      </div>
 
-<!-- ============== NL2SQL ============== -->
-<section data-panel="nl2sql" class="panel hidden">
-  <h2 class="h2">Natural Language → SQL</h2>
-  <textarea id="nl_q" rows="3" placeholder="Top 10 customers by revenue last quarter"></textarea>
-  <label>Dialect
-    <select id="nl_dialect">
-      <option>snowflake</option><option>bigquery</option><option>redshift</option>
-      <option>postgres</option><option>databricks</option><option>duckdb</option>
-    </select>
-  </label>
-  <button class="btn-primary" onclick="runNL2SQL()">Generate</button>
-  <pre id="nl_out"></pre>
-</section>
+      <!-- ======== LINEAGE — D1 ======== -->
+      <div id="panel-lineage" class="panel">
+        <div class="panel-title">🌐 Lineage Graph</div>
+        <div class="panel-desc">Interactive DAG of your dbt project. Click a node to see details. Use search to highlight models.</div>
+        <div class="btn-group" style="margin-bottom:.75rem">
+          <button class="btn btn-primary" id="load-lineage">Load graph</button>
+        </div>
+        <div class="lineage-wrap">
+          <div class="lineage-toolbar">
+            <input id="lineage-search" placeholder="Highlight model…" />
+            <button class="btn btn-secondary btn-sm" id="lineage-fit">⊡ Fit</button>
+            <button class="btn btn-secondary btn-sm" id="lineage-zoomin">＋</button>
+            <button class="btn btn-secondary btn-sm" id="lineage-zoomout">－</button>
+            <label style="display:flex;align-items:center;gap:.3rem;font-size:.8rem;color:#64748b;margin-left:.5rem">
+              <input type="checkbox" id="lineage-physics" checked /> Physics
+            </label>
+          </div>
+          <div style="position:relative">
+            <div id="lineage-net"></div>
+            <div id="lineage-detail" class="node-detail-panel" style="display:none"></div>
+          </div>
+          <div class="lineage-legend">
+            <span class="legend-dot legend-source">Source</span>
+            <span class="legend-dot legend-seed">Seed</span>
+            <span class="legend-dot legend-staging">Staging</span>
+            <span class="legend-dot legend-intermediate">Intermediate</span>
+            <span class="legend-dot legend-marts">Marts / Fact / Dim</span>
+            <span class="legend-dot legend-other">Other</span>
+          </div>
+        </div>
+      </div>
 
-<!-- ============== DOCS ============== -->
-<section data-panel="docs" class="panel hidden">
-  <h2 class="h2">AI Documentation Generator</h2>
-  <button class="btn" onclick="loadUndocumented()">List undocumented models</button>
-  <div id="undoc_out"></div>
-  <hr class="my-4" />
-  <label>Model name <input id="doc_model" placeholder="dim_customers" /></label>
-  <button class="btn-primary" onclick="runDocs()">Generate YAML</button>
-  <pre id="doc_out"></pre>
-</section>
+      <!-- ======== COLUMN LINEAGE — D2 ======== -->
+      <div id="panel-collineage" class="panel">
+        <div class="panel-title">🧬 Column-Level Lineage</div>
+        <div class="panel-desc">Traces which upstream model and column a given column originates from.</div>
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">Model name</label>
+            <input type="text" id="col_model" placeholder="dim_customers" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Column name</label>
+            <input type="text" id="col_column" placeholder="customer_id" />
+          </div>
+          <button class="btn btn-primary" id="run-collineage">Trace lineage</button>
+        </div>
+        <pre id="col_out" style="display:none"></pre>
+        <script>document.getElementById("run-collineage")?.addEventListener("click",()=>{document.getElementById("col_out").style.display="block";})</script>
+      </div>
 
-<!-- ============== SCAFFOLD ============== -->
-<section data-panel="scaffold" class="panel hidden">
-  <h2 class="h2">Model Scaffolding</h2>
-  <textarea id="scaf_brief" rows="4" placeholder="A daily revenue model grouped by country, joining orders and customers."></textarea>
-  <label>Layer
-    <select id="scaf_layer">
-      <option>staging</option><option>intermediate</option><option>marts</option>
-    </select>
-  </label>
-  <label>Materialization
-    <select id="scaf_mat">
-      <option>table</option><option>view</option><option>incremental</option><option>ephemeral</option>
-    </select>
-  </label>
-  <button class="btn-primary" onclick="runScaffold()">Generate</button>
-  <div id="scaf_out"></div>
-</section>
+      <!-- ======== SEARCH — B3 ======== -->
+      <div id="panel-search" class="panel">
+        <div class="panel-title">🔎 Semantic Search</div>
+        <div class="panel-desc">Find models by keyword, description, or column name. Results are ranked by relevance.</div>
+        <div id="search-examples"></div>
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">Search query</label>
+            <input type="text" id="search_q" placeholder="revenue by country…" />
+          </div>
+          <button class="btn btn-primary" id="run-search">Search</button>
+        </div>
+        <div id="search-table"></div>
+      </div>
 
-<!-- ============== STAGING ============== -->
-<section data-panel="staging" class="panel hidden">
-  <h2 class="h2">Staging Layer Generator</h2>
-  <label>Source name <input id="stg_src" placeholder="stripe" /></label>
-  <label>Table name <input id="stg_tbl" placeholder="charges" /></label>
-  <p class="muted">Columns auto-loaded from manifest sources, or paste CSV (name,type) below.</p>
-  <textarea id="stg_cols" rows="4" placeholder="id,number&#10;created_at,timestamp&#10;amount,number"></textarea>
-  <button class="btn-primary" onclick="runStaging()">Generate</button>
-  <div id="stg_out"></div>
-</section>
+      <!-- ======== CHAT — B1 ======== -->
+      <div id="panel-chat" class="panel">
+        <div class="panel-title">💬 Chat with your dbt Project</div>
+        <div class="panel-desc">Ask plain-English questions. The AI answers using your actual model graph. Bookmark any response with 🔖.</div>
+        <div id="chat-examples"></div>
+        <div class="chat-wrap">
+          <div class="chat-history" id="chat-history"></div>
+          <div class="chat-input-row">
+            <textarea id="chat_input" placeholder="Where is monthly active users calculated? (Shift+Enter for newline)"></textarea>
+            <button class="btn btn-primary" id="chat_send">Send</button>
+          </div>
+        </div>
+        <div id="chat-context"></div>
+      </div>
 
-<!-- ============== INCREMENTAL ============== -->
-<section data-panel="incremental" class="panel hidden">
-  <h2 class="h2">Incremental Model Advisor</h2>
-  <button class="btn" onclick="loadIncrAnalyze()">Analyze project</button>
-  <div id="incr_table"></div>
-  <hr class="my-4" />
-  <label>Model <input id="incr_model" /></label>
-  <label>Timestamp column <input id="incr_ts" placeholder="updated_at" /></label>
-  <label>Strategy
-    <select id="incr_strategy">
-      <option>merge</option><option>append</option><option>delete+insert</option><option>insert_overwrite</option>
-    </select>
-  </label>
-  <button class="btn-primary" onclick="runIncrRewrite()">Rewrite</button>
-  <div id="incr_out"></div>
-</section>
+      <!-- ======== NL2SQL — B2 ======== -->
+      <div id="panel-nl2sql" class="panel">
+        <div class="panel-title">🗣 Natural Language → SQL</div>
+        <div class="panel-desc">Describe what you want in plain English. Get warehouse-ready SQL back. Optionally run it in BigQuery.</div>
+        <div id="nl2sql-examples"></div>
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">Question</label>
+            <textarea id="nl_q" rows="3" placeholder="Top 10 customers by revenue last quarter"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">SQL dialect</label>
+            <select id="nl_dialect">
+              <option>snowflake</option><option>bigquery</option><option>redshift</option>
+              <option>postgres</option><option>databricks</option><option>duckdb</option>
+            </select>
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-primary" id="run-nl2sql">Generate SQL</button>
+            <button class="btn btn-success" id="nl-run-bq" style="display:none">▶ Run in BigQuery</button>
+          </div>
+        </div>
+        <div class="code-block-wrap" id="nl-sql-wrap" style="display:none">
+          <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('nl_out').textContent)">Copy</button>
+          <pre id="nl_out"></pre>
+        </div>
+        <script>
+          document.getElementById("run-nl2sql")?.addEventListener("click",()=>{
+            document.getElementById("nl-sql-wrap").style.display="block";
+          });
+        </script>
+        <div id="nl-bq-result" style="margin-top:1rem"></div>
+      </div>
 
-<!-- ============== TESTS ============== -->
-<section data-panel="tests" class="panel hidden">
-  <h2 class="h2">AI Test Generator</h2>
-  <label>Model <input id="test_model" placeholder="dim_customers" /></label>
-  <p class="muted">Paste a CSV of sample rows (with header).</p>
-  <textarea id="test_csv" rows="8" placeholder="id,email,status&#10;1,a@x.com,active&#10;2,b@x.com,active&#10;3,c@x.com,churned"></textarea>
-  <button class="btn-primary" onclick="runTests()">Generate tests</button>
-  <pre id="test_out"></pre>
-</section>
+      <!-- ======== DOCS — A1 ======== -->
+      <div id="panel-docs" class="panel">
+        <div class="panel-title">📝 AI Documentation Generator</div>
+        <div class="panel-desc">Auto-generates schema.yml descriptions for any model and its columns. Start by listing undocumented models.</div>
+        <div class="btn-group" style="margin-bottom:.75rem">
+          <button class="btn btn-secondary" id="load-undocumented">List undocumented models</button>
+        </div>
+        <div id="undoc-table"></div>
+        <hr class="card-divider" style="margin:1.25rem 0"/>
+        <div class="card">
+          <div class="card-title" style="margin-bottom:.75rem">Generate YAML for a model</div>
+          <div class="form-group">
+            <label class="form-label">Model name</label>
+            <input type="text" id="doc_model" placeholder="dim_customers" />
+          </div>
+          <button class="btn btn-primary" id="run-docs">Generate YAML</button>
+        </div>
+        <div id="doc_out" style="margin-top:.5rem"></div>
+      </div>
 
-<!-- ============== ANOMALY ============== -->
-<section data-panel="anomaly" class="panel hidden">
-  <h2 class="h2">Anomaly Detection Tests (Elementary)</h2>
-  <p class="muted">Requires the <code>elementary-data/elementary</code> dbt package in your project.</p>
-  <label>Model (optional — leave blank for all) <input id="anom_model" /></label>
-  <button class="btn-primary" onclick="runAnomaly()">Suggest tests</button>
-  <div id="anom_out"></div>
-</section>
+      <!-- ======== SCAFFOLD — A2 ======== -->
+      <div id="panel-scaffold" class="panel">
+        <div class="panel-title">🏗 Model Scaffolding</div>
+        <div class="panel-desc">Generate a complete dbt model (SQL + schema.yml) from a plain-English brief. Uses ref() and source() from your project.</div>
+        <div id="scaffold-examples"></div>
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">Brief — describe what the model should do</label>
+            <textarea id="scaf_brief" rows="3" placeholder="Daily revenue by country joining orders and customers, last 90 days"></textarea>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Layer</label>
+              <select id="scaf_layer"><option>staging</option><option>intermediate</option><option selected>marts</option></select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Materialization</label>
+              <select id="scaf_mat"><option selected>table</option><option>view</option><option>incremental</option><option>ephemeral</option></select>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="run-scaffold">Generate model</button>
+        </div>
+        <div id="scaf_out"></div>
+      </div>
 
-<!-- ============== TEAMS ============== -->
-<section data-panel="teams" class="panel hidden">
-  <h2 class="h2">Microsoft Teams Bot</h2>
+      <!-- ======== STAGING — A3 ======== -->
+      <div id="panel-staging" class="panel">
+        <div class="panel-title">🧱 Staging Layer Generator</div>
+        <div class="panel-desc">Turns a RAW source table into a clean stg_* model following the CTE pattern.</div>
+        <div id="staging-examples"></div>
+        <div class="card">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Source name</label>
+              <input type="text" id="stg_src" placeholder="stripe" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Table name</label>
+              <input type="text" id="stg_tbl" placeholder="charges" />
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:.75rem">
+            <label class="form-label">Columns CSV (name,type — one per line, optional if in manifest)</label>
+            <textarea id="stg_cols" rows="5" placeholder="id,number&#10;created_at,timestamp&#10;amount,number&#10;status,varchar"></textarea>
+          </div>
+          <button class="btn btn-primary" id="run-staging">Generate staging model</button>
+        </div>
+        <div id="stg_out"></div>
+      </div>
 
-  <div class="card">
-    <h3 class="h3">Try a command (same handler Teams uses)</h3>
-    <p class="muted">Type any slash command or a plain-English question. Same behaviour your team gets in Teams.</p>
-    <input id="cmd_in" placeholder="/help · /health · /sql top customers · /docs dim_customers" />
-    <button class="btn-primary mt-2" onclick="runCommand()">Run</button>
-    <pre id="cmd_out"></pre>
-  </div>
+      <!-- ======== INCREMENTAL — A4 ======== -->
+      <div id="panel-incremental" class="panel">
+        <div class="panel-title">⚡ Incremental Model Advisor</div>
+        <div class="panel-desc">Scans all models and scores incremental suitability. Rewrites the selected model as a proper incremental model.</div>
+        <div class="btn-group" style="margin-bottom:.75rem">
+          <button class="btn btn-secondary" id="load-incr-analyze">Analyze project</button>
+        </div>
+        <div id="incr-table"></div>
+        <hr class="card-divider" style="margin:1.25rem 0"/>
+        <div class="card">
+          <div class="card-title" style="margin-bottom:.75rem">Rewrite a model as incremental</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Model</label>
+              <input type="text" id="incr_model" placeholder="fct_orders" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Timestamp column</label>
+              <input type="text" id="incr_ts" placeholder="updated_at" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Strategy</label>
+              <select id="incr_strategy"><option>merge</option><option>append</option><option>delete+insert</option><option>insert_overwrite</option></select>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="run-incr-rewrite" style="margin-top:.75rem">Rewrite</button>
+        </div>
+        <div id="incr_out"></div>
+      </div>
 
-  <div class="card">
-    <h3 class="h3">Available commands</h3>
-    <pre style="background:#f1f5f9; color:#0f172a; padding:1rem; font-size:.8rem;">
-/help                              — list commands
-/health                            — D3 project health KPIs
-/quality [n]                       — C3 bottom-N quality scores
-/search &lt;query&gt;                    — B3 semantic search
-/sql &lt;question&gt; | dialect=snowflake — B2 natural language → SQL
-/docs &lt;model&gt;                      — A1 generate schema.yml
-/undocumented                      — A1 list undocumented models
-/scaffold &lt;brief&gt; | layer=marts mat=table — A2 new model
-/staging &lt;source&gt; &lt;table&gt;          — A3 staging model
-/incremental                       — A4 candidates
-/incremental &lt;model&gt; &lt;ts_col&gt;      — A4 rewrite as incremental
-/anomaly &lt;model&gt;                   — C2 Elementary tests
-/lineage &lt;model&gt; &lt;column&gt;          — D2 column lineage
+      <!-- ======== TESTS — C1 ======== -->
+      <div id="panel-tests" class="panel">
+        <div class="panel-title">✅ AI Test Generator</div>
+        <div class="panel-desc">Paste a CSV sample of your model's data and get a schema.yml tests block: unique, not_null, accepted_values, relationships.</div>
+        <div id="tests-examples"></div>
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">Model name</label>
+            <input type="text" id="test_model" placeholder="dim_customers" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">CSV sample (header row required, 10–50 rows recommended)</label>
+            <textarea id="test_csv" rows="8" placeholder="id,email,status,created_at&#10;1,alice@example.com,active,2024-01-01&#10;2,bob@example.com,churned,2024-01-05"></textarea>
+          </div>
+          <button class="btn btn-primary" id="run-tests">Generate tests</button>
+        </div>
+        <div id="test_out"></div>
+      </div>
 
-(anything else)                    — B1 chat with project</pre>
-  </div>
+      <!-- ======== ANOMALY — C2 ======== -->
+      <div id="panel-anomaly" class="panel">
+        <div class="panel-title">🚨 Anomaly Detection Tests</div>
+        <div class="panel-desc">Generates Elementary anomaly detection tests based on column names. Leave model blank to scan all models.</div>
+        <div class="card" style="background:#fffbeb;border-color:#fde68a">
+          <p style="font-size:.82rem;color:#92400e">⚠ Requires <code>elementary-data/elementary</code> dbt package. Add to <code>packages.yml</code> and run <code>dbt deps</code>.</p>
+        </div>
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">Model name (optional — blank = all models)</label>
+            <input type="text" id="anom_model" placeholder="fct_orders" />
+          </div>
+          <button class="btn btn-primary" id="run-anomaly">Suggest anomaly tests</button>
+        </div>
+        <div id="anom_out"></div>
+      </div>
 
-  <div class="card">
-    <h3 class="h3">Push a message to a channel</h3>
-    <p class="muted">Uses the configured Incoming Webhook URL.</p>
-    <label>Text <input id="tm_txt" value="Hello from AIinDbt 👋" /></label>
-    <button class="btn-primary" onclick="runTeamsTest()">Send test</button>
-    <pre id="tm_out"></pre>
-  </div>
+      <!-- ======== TEAMS — E2 ======== -->
+      <div id="panel-teams" class="panel">
+        <div class="panel-title">💼 Microsoft Teams Bot</div>
+        <div class="panel-desc">Connect AIinDbt to your Teams channel. Use the command tester below to preview any command before wiring Teams.</div>
 
-  <p class="muted">
-    Outgoing Webhook callback URL (give this to Teams):
-    <code id="teams_url"></code>
-  </p>
-</section>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Try a command</div></div>
+          <p class="card-subtitle" style="margin-bottom:.75rem">Same handler Teams uses. Works without Teams configured.</p>
+          <div id="cmd-examples"></div>
+          <div class="form-group">
+            <input type="text" id="cmd_in" placeholder="/help · /health · /sql top customers · where is MAU defined?" />
+          </div>
+          <button class="btn btn-primary" id="run-command">Run</button>
+          <pre id="cmd_out" style="margin-top:.75rem;display:none"></pre>
+          <script>document.getElementById("run-command")?.addEventListener("click",()=>{document.getElementById("cmd_out").style.display="block";})</script>
+        </div>
 
-</main>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Push a message to a channel</div></div>
+          <div class="form-group">
+            <label class="form-label">Message text</label>
+            <input type="text" id="tm_txt" value="Hello from AIinDbt 👋" />
+          </div>
+          <button class="btn btn-secondary" id="run-teams-test">Send via Incoming Webhook</button>
+          <pre id="tm_out" style="margin-top:.75rem;display:none"></pre>
+          <script>document.getElementById("run-teams-test")?.addEventListener("click",()=>{document.getElementById("tm_out").style.display="block";})</script>
+        </div>
 
-<script src="/static/app.js"></script>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Setup guide</div></div>
+          <p style="font-size:.82rem;color:#64748b;margin-bottom:.75rem">Outgoing Webhook URL to paste in Teams:</p>
+          <code id="teams_url_display" style="display:block;padding:.5rem;background:#f1f5f9;border-radius:6px;font-size:.82rem;word-break:break-all"></code>
+          <p style="font-size:.8rem;color:#64748b;margin-top:.75rem">See the <b>Documentation → Microsoft Teams Setup</b> page for full step-by-step instructions.</p>
+        </div>
+      </div>
+
+      <!-- ======== BIGQUERY ======== -->
+      <div id="panel-bigquery" class="panel">
+        <div class="panel-title">🔗 BigQuery</div>
+        <div class="panel-desc">Run SQL queries directly against your BigQuery project. Upload a service account JSON or use Application Default Credentials.</div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">Connection</div></div>
+          <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem">
+            <div class="form-group" style="margin:0;flex:1;min-width:180px">
+              <label class="form-label">Project ID</label>
+              <input type="text" id="bq_project_id" placeholder="my-gcp-project" />
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:.4rem">
+              <button class="btn btn-secondary" id="bq-set-project">Save</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Service account JSON (optional — uploads automatically sets project ID)</label>
+            <input type="file" id="bq_key_file" accept=".json" />
+          </div>
+          <div class="btn-group">
+            <button class="btn btn-primary" id="bq-upload-key">Upload key</button>
+            <button class="btn btn-secondary" id="bq-test">Test connection</button>
+          </div>
+          <p id="bq_status" style="margin-top:.6rem;font-size:.82rem"></p>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">Run a query</div></div>
+          <div id="bq-examples"></div>
+          <div class="form-group">
+            <label class="form-label">SQL</label>
+            <textarea id="bq_sql" rows="6" placeholder="SELECT * FROM `project.dataset.table` LIMIT 100"></textarea>
+          </div>
+          <button class="btn btn-success" id="run-bq-query">▶ Run query</button>
+        </div>
+        <div id="bq_result"></div>
+      </div>
+
+      <!-- ======== SETTINGS ======== -->
+      <div id="panel-settings" class="panel">
+        <div class="panel-title">⚙ Settings</div>
+        <div class="panel-desc">All settings are kept in memory only — nothing is written to disk. Re-enter after server restart.</div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">LLM — Cline / Anthropic / OpenRouter</div></div>
+          <div class="form-group">
+            <label class="form-label">API key</label>
+            <input type="password" id="llm_api_key" placeholder="sk-ant-… or your Cline key" />
+            <div class="form-hint">For Cline or OpenRouter, paste your gateway key here.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Base URL <span style="font-weight:400;color:#94a3b8">(leave blank for Anthropic direct)</span></label>
+            <input type="text" id="llm_base_url" placeholder="https://openrouter.ai/api/v1" />
+            <div class="form-hint">Any URL containing <code>openrouter</code>, <code>cline</code>, or <code>/v1/chat</code> auto-switches to OpenAI-compatible mode.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Model</label>
+            <input type="text" id="llm_model" placeholder="claude-sonnet-4-6" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">dbt Project — manifest upload</div></div>
+          <div class="form-group">
+            <label class="form-label">manifest.json</label>
+            <input type="file" id="manifest_file" accept=".json" />
+            <div class="form-hint">Run <code>dbt parse</code> and upload <code>target/manifest.json</code></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">catalog.json <span style="font-weight:400;color:#94a3b8">(optional)</span></label>
+            <input type="file" id="catalog_file" accept=".json" />
+            <div class="form-hint">Enables row-count signals in the Incremental Advisor</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">dbt Cloud <span style="font-weight:400;font-size:.8rem;color:#94a3b8">(alternative to manifest upload)</span></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Host</label>
+              <input type="text" id="dbt_cloud_host" placeholder="cloud.getdbt.com" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Account ID</label>
+              <input type="text" id="dbt_cloud_account_id" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Project ID</label>
+              <input type="text" id="dbt_cloud_project_id" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Service Token</label>
+              <input type="password" id="dbt_cloud_token" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">Microsoft Teams <span style="font-weight:400;font-size:.8rem;color:#94a3b8">(optional)</span></div></div>
+          <div class="form-group">
+            <label class="form-label">Outgoing Webhook HMAC secret</label>
+            <input type="password" id="teams_outgoing_secret" placeholder="base64-encoded secret from Teams" />
+            <div class="form-hint">Teams → channel ⋯ → Connectors → Outgoing Webhooks → copy secret</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Incoming Webhook URL</label>
+            <input type="text" id="teams_incoming_webhook" placeholder="https://outlook.office.com/webhook/…" />
+            <div class="form-hint">Teams → channel ⋯ → Connectors → Incoming Webhook → copy URL</div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="save-settings">Save all settings</button>
+      </div>
+
+      <!-- ======== DOCUMENTATION ======== -->
+      <div id="panel-apidocs" class="panel">
+        <div class="panel-title">📖 Documentation</div>
+        <div class="panel-desc">Full reference for every feature, integration setup, and troubleshooting.</div>
+        <div class="form-group" style="margin-bottom:.75rem">
+          <input type="text" id="docs-search" placeholder="Search pages…" style="max-width:280px" />
+        </div>
+        <div class="docs-shell">
+          <nav class="docs-sidebar" id="docs-sidebar-nav"></nav>
+          <article class="docs-content" id="docs-content-area"></article>
+        </div>
+      </div>
+
+    </div><!-- /content-area -->
+  </div><!-- /main-content -->
+</div><!-- /app-shell -->
+
+<script type="module" src="/static/app.js"></script>
 </body>
 </html>

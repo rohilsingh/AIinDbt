@@ -25,8 +25,12 @@ class Settings:
     warehouse_dsn: str = ""       # connection string
 
     # Microsoft Teams (optional)
-    teams_outgoing_secret: str = ""    # HMAC shared secret from Teams Outgoing Webhook
-    teams_incoming_webhook: str = ""   # full URL of a Teams Incoming Webhook connector
+    teams_outgoing_secret: str = ""
+    teams_incoming_webhook: str = ""
+
+    # BigQuery (optional)
+    bigquery_project_id: str = ""
+    bigquery_service_account: dict = field(default_factory=dict)
 
 
 SETTINGS = Settings()
@@ -39,4 +43,5 @@ def configured() -> dict[str, bool]:
         "dbt_cloud": bool(SETTINGS.dbt_cloud_token and SETTINGS.dbt_cloud_account_id),
         "warehouse": bool(SETTINGS.warehouse_dsn),
         "teams": bool(SETTINGS.teams_outgoing_secret or SETTINGS.teams_incoming_webhook),
+        "bigquery": bool(SETTINGS.bigquery_project_id),
     }
