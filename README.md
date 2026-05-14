@@ -26,12 +26,41 @@ from one browser tab.
 
 ## Run it
 
+### macOS / Linux
+
 ```bash
 pip install -r requirements.txt
 ./run.sh
 ```
 
-Then open <http://localhost:8000>.
+### Windows (Command Prompt)
+
+```cmd
+pip install -r requirements.txt
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Windows (PowerShell)
+
+```powershell
+pip install -r requirements.txt
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Windows — recommended: use a virtual environment
+
+```cmd
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Then open <http://localhost:8000> in any browser.
+
+> **Python version:** 3.10 or newer required.  
+> Download from <https://www.python.org/downloads/> and tick
+> **"Add Python to PATH"** during installation.
 
 ## Configure
 
