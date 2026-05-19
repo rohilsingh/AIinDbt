@@ -5,22 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>AIinDbt</title>
 <link rel="stylesheet" href="/static/styles.css"/>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
 
-<button id="hamburger" aria-label="Menu">☰</button>
-<div id="toast-container"></div>
+<div id="app">
+
+<button id="hamburger" aria-label="Menu" @click="sidebarOpen = !sidebarOpen">☰</button>
+
+<!-- Toast container -->
+<div id="toast-container">
+  <div v-for="t in toasts" :key="t.id" :class="'toast ' + t.type">{{ t.msg }}</div>
+</div>
 
 <!-- ============================================================
      BOOKMARKS DRAWER
      ============================================================ -->
-<aside id="bookmarks-drawer">
+<aside id="bookmarks-drawer" :class="{open: bookmarksOpen}">
   <div class="drawer-header">
     <h2>🔖 Bookmarks</h2>
-    <button id="close-bookmarks" class="btn-ghost">✕</button>
+    <button class="btn-ghost" @click="bookmarksOpen = false">✕</button>
   </div>
-  <div class="drawer-body" id="bookmarks-body"></div>
+  <div class="drawer-body" id="bookmarks-body">
+    <div v-if="!chatBookmarks.length" class="drawer-empty">No bookmarks yet.<br>Click 🔖 on any AI response.</div>
+    <div v-for="b in chatBookmarks" :key="b.id" class="bookmark-item">
+      <div class="bm-label">{{ new Date(b.ts).toLocaleString() }}</div>
+      <pre>{{ (b.text || '').slice(0, 400) }}{{ (b.text || '').length > 400 ? '…' : '' }}</pre>
+      <button class="bm-delete" @click="deleteBookmark(b.id)">✕</button>
+    </div>
+  </div>
 </aside>
 
 <!-- ============================================================
@@ -29,7 +43,7 @@
 <div class="app-shell">
 
   <!-- SIDEBAR -->
-  <aside id="sidebar">
+  <aside id="sidebar" :class="{open: sidebarOpen}">
     <div class="sidebar-logo">
       <div class="logo-mark">AI</div>
       <div>
@@ -40,51 +54,88 @@
 
     <div class="sidebar-section">
       <div class="sidebar-section-label">Overview</div>
-      <div class="sidebar-item active" data-panel="health"><span class="icon">📊</span><span class="label">Health Dashboard</span></div>
-      <div class="sidebar-item" data-panel="quality"><span class="icon">🎯</span><span class="label">Quality Scores</span></div>
+      <div class="sidebar-item" :class="{active: panel==='health'}" @click="panel='health'; sidebarOpen=false">
+        <span class="icon">📊</span><span class="label">Health Dashboard</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='quality'}" @click="panel='quality'; sidebarOpen=false">
+        <span class="icon">🎯</span><span class="label">Quality Scores</span>
+      </div>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-label">Generation</div>
-      <div class="sidebar-item" data-panel="docs"><span class="icon">📝</span><span class="label">AI Docs</span></div>
-      <div class="sidebar-item" data-panel="scaffold"><span class="icon">🏗</span><span class="label">Model Scaffold</span></div>
-      <div class="sidebar-item" data-panel="staging"><span class="icon">🧱</span><span class="label">Staging Layer</span></div>
-      <div class="sidebar-item" data-panel="incremental"><span class="icon">⚡</span><span class="label">Incremental Advisor</span></div>
+      <div class="sidebar-item" :class="{active: panel==='docs'}" @click="panel='docs'; sidebarOpen=false">
+        <span class="icon">📝</span><span class="label">AI Docs</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='scaffold'}" @click="panel='scaffold'; sidebarOpen=false">
+        <span class="icon">🏗</span><span class="label">Model Scaffold</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='staging'}" @click="panel='staging'; sidebarOpen=false">
+        <span class="icon">🧱</span><span class="label">Staging Layer</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='incremental'}" @click="panel='incremental'; sidebarOpen=false">
+        <span class="icon">⚡</span><span class="label">Incremental Advisor</span>
+      </div>
     </div>
 
     <div class="sidebar-section">
-      <div class="sidebar-section-label">Chat & Search</div>
-      <div class="sidebar-item" data-panel="chat"><span class="icon">💬</span><span class="label">Chat with Project</span></div>
-      <div class="sidebar-item" data-panel="nl2sql"><span class="icon">🗣</span><span class="label">NL → SQL</span></div>
-      <div class="sidebar-item" data-panel="search"><span class="icon">🔎</span><span class="label">Semantic Search</span></div>
+      <div class="sidebar-section-label">Chat &amp; Search</div>
+      <div class="sidebar-item" :class="{active: panel==='chat'}" @click="panel='chat'; sidebarOpen=false">
+        <span class="icon">💬</span><span class="label">Chat with Project</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='nl2sql'}" @click="panel='nl2sql'; sidebarOpen=false">
+        <span class="icon">🗣</span><span class="label">NL → SQL</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='search'}" @click="panel='search'; sidebarOpen=false">
+        <span class="icon">🔎</span><span class="label">Semantic Search</span>
+      </div>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-label">Testing</div>
-      <div class="sidebar-item" data-panel="tests"><span class="icon">✅</span><span class="label">Test Generator</span></div>
-      <div class="sidebar-item" data-panel="anomaly"><span class="icon">🚨</span><span class="label">Anomaly Detection</span></div>
+      <div class="sidebar-item" :class="{active: panel==='tests'}" @click="panel='tests'; sidebarOpen=false">
+        <span class="icon">✅</span><span class="label">Test Generator</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='anomaly'}" @click="panel='anomaly'; sidebarOpen=false">
+        <span class="icon">🚨</span><span class="label">Anomaly Detection</span>
+      </div>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-label">Lineage</div>
-      <div class="sidebar-item" data-panel="lineage"><span class="icon">🌐</span><span class="label">Lineage Graph</span><span class="badge" id="lineage-badge">0</span></div>
-      <div class="sidebar-item" data-panel="collineage"><span class="icon">🧬</span><span class="label">Column Lineage</span></div>
+      <div class="sidebar-item" :class="{active: panel==='lineage'}" @click="panel='lineage'; sidebarOpen=false">
+        <span class="icon">🌐</span><span class="label">Lineage Graph</span>
+        <span class="badge">{{ lineageBadge }}</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='collineage'}" @click="panel='collineage'; sidebarOpen=false">
+        <span class="icon">🧬</span><span class="label">Column Lineage</span>
+      </div>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-label">Integrations</div>
-      <div class="sidebar-item" data-panel="teams"><span class="icon">💼</span><span class="label">Microsoft Teams</span></div>
-      <div class="sidebar-item" data-panel="bigquery"><span class="icon">🔗</span><span class="label">BigQuery</span></div>
+      <div class="sidebar-item" :class="{active: panel==='teams'}" @click="panel='teams'; sidebarOpen=false">
+        <span class="icon">💼</span><span class="label">Microsoft Teams</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='bigquery'}" @click="panel='bigquery'; sidebarOpen=false">
+        <span class="icon">🔗</span><span class="label">BigQuery</span>
+      </div>
     </div>
 
     <div class="sidebar-section">
       <div class="sidebar-section-label">System</div>
-      <div class="sidebar-item" data-panel="settings"><span class="icon">⚙</span><span class="label">Settings</span></div>
-      <div class="sidebar-item" data-panel="apidocs"><span class="icon">📖</span><span class="label">Documentation</span></div>
+      <div class="sidebar-item" :class="{active: panel==='settings'}" @click="panel='settings'; sidebarOpen=false">
+        <span class="icon">⚙</span><span class="label">Settings</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='apidocs'}" @click="panel='apidocs'; sidebarOpen=false">
+        <span class="icon">📖</span><span class="label">Documentation</span>
+      </div>
     </div>
 
     <div class="sidebar-footer">
-      <div class="status-row" id="status-row"></div>
+      <div class="status-row">
+        <span v-for="dot in statusDots" :key="dot.label" :class="'status-dot ' + (dot.ok ? 'ok' : '')">{{ dot.label }}</span>
+      </div>
     </div>
   </aside>
 
@@ -93,59 +144,65 @@
     <header class="topbar">
       <div>
         <div class="topbar-title">AIinDbt</div>
-        <div class="topbar-subtitle">Health Dashboard</div>
+        <div class="topbar-subtitle">{{ panelTitle }}</div>
       </div>
       <div class="topbar-actions">
-        <button class="btn btn-secondary btn-sm" id="open-bookmarks">🔖 Bookmarks</button>
+        <button class="btn btn-secondary btn-sm" @click="bookmarksOpen = !bookmarksOpen">🔖 Bookmarks</button>
       </div>
     </header>
 
     <div class="content-area">
 
       <!-- ======== HEALTH — D3 ======== -->
-      <div id="panel-health" class="panel active">
+      <div id="panel-health" class="panel" v-show="panel==='health'">
         <div class="panel-title">📊 Model Health Dashboard</div>
         <div class="panel-desc">Project-wide overview: documentation coverage, test adoption, quality grades.</div>
         <div class="btn-group" style="margin-bottom:1rem">
-          <button class="btn btn-primary" id="load-health">Refresh</button>
+          <button class="btn btn-primary" @click="loadHealth">Refresh</button>
           <button class="btn btn-secondary no-print" onclick="window.print()">🖨 Print PDF</button>
         </div>
-        <div id="health_kpis"></div>
-        <div class="card">
+        <div v-if="healthKpis.length" class="kpi-grid">
+          <div v-for="k in healthKpis" :key="k.label" class="kpi-card">
+            <div class="kpi-value" :style="k.color ? 'color:'+k.color : ''">{{ k.value }}</div>
+            <div class="kpi-label">{{ k.label }}</div>
+          </div>
+        </div>
+        <div v-else style="color:#94a3b8">Upload a manifest first.</div>
+        <div class="card" style="margin-top:1rem">
           <div class="card-header"><div class="card-title">Worst Offenders</div></div>
-          <div id="health-worst-table"></div>
+          <data-table :rows="healthWorst" :columns="healthWorstCols" :badges="['grade']" export-name="health-worst" />
         </div>
         <div class="card">
           <div class="card-header"><div class="card-title">Top Performers</div></div>
-          <div id="health-top-table"></div>
+          <data-table :rows="healthTop" :columns="healthTopCols" :badges="['grade']" export-name="health-top" />
         </div>
       </div>
 
       <!-- ======== QUALITY — C3 ======== -->
-      <div id="panel-quality" class="panel">
+      <div id="panel-quality" class="panel" v-show="panel==='quality'">
         <div class="panel-title">🎯 Data Quality Scores</div>
         <div class="panel-desc">Per-model health scores across documentation, tests, and freshness. Export to Excel for stakeholder reporting.</div>
         <div class="btn-group" style="margin-bottom:1rem">
-          <button class="btn btn-primary" id="load-quality">Refresh scores</button>
+          <button class="btn btn-primary" @click="loadQuality">Refresh scores</button>
         </div>
-        <div id="quality-table"></div>
+        <data-table :rows="qualityRows" :columns="qualityCols" :badges="['grade']" export-name="quality-scores" />
       </div>
 
       <!-- ======== LINEAGE — D1 ======== -->
-      <div id="panel-lineage" class="panel">
+      <div id="panel-lineage" class="panel" v-show="panel==='lineage'">
         <div class="panel-title">🌐 Lineage Graph</div>
         <div class="panel-desc">Interactive DAG of your dbt project. Click a node to see details. Use search to highlight models.</div>
         <div class="btn-group" style="margin-bottom:.75rem">
-          <button class="btn btn-primary" id="load-lineage">Load graph</button>
+          <button class="btn btn-primary" @click="loadLineage">Load graph</button>
         </div>
         <div class="lineage-wrap">
           <div class="lineage-toolbar">
-            <input id="lineage-search" placeholder="Highlight model…" />
-            <button class="btn btn-secondary btn-sm" id="lineage-fit">⊡ Fit</button>
-            <button class="btn btn-secondary btn-sm" id="lineage-zoomin">＋</button>
-            <button class="btn btn-secondary btn-sm" id="lineage-zoomout">－</button>
+            <input placeholder="Highlight model…" @input="lineageSearch($event.target.value)" />
+            <button class="btn btn-secondary btn-sm" @click="lineageFit">⊡ Fit</button>
+            <button class="btn btn-secondary btn-sm" @click="lineageZoomIn">＋</button>
+            <button class="btn btn-secondary btn-sm" @click="lineageZoomOut">－</button>
             <label style="display:flex;align-items:center;gap:.3rem;font-size:.8rem;color:#64748b;margin-left:.5rem">
-              <input type="checkbox" id="lineage-physics" checked /> Physics
+              <input type="checkbox" checked @change="lineageSetPhysics($event.target.checked)" /> Physics
             </label>
           </div>
           <div style="position:relative">
@@ -164,209 +221,331 @@
       </div>
 
       <!-- ======== COLUMN LINEAGE — D2 ======== -->
-      <div id="panel-collineage" class="panel">
+      <div id="panel-collineage" class="panel" v-show="panel==='collineage'">
         <div class="panel-title">🧬 Column-Level Lineage</div>
         <div class="panel-desc">Traces which upstream model and column a given column originates from.</div>
         <div class="card">
           <div class="form-group">
             <label class="form-label">Model name</label>
-            <input type="text" id="col_model" placeholder="dim_customers" />
+            <auto-input v-model="colModel" kind="model" placeholder="dim_customers" input-id="col_model" />
           </div>
           <div class="form-group">
             <label class="form-label">Column name</label>
-            <input type="text" id="col_column" placeholder="customer_id" />
+            <input type="text" v-model="colColumn" placeholder="customer_id" />
           </div>
-          <button class="btn btn-primary" id="run-collineage">Trace lineage</button>
+          <button class="btn btn-primary" @click="runColLineage">Trace lineage</button>
         </div>
-        <pre id="col_out" style="display:none"></pre>
-        <script>document.getElementById("run-collineage")?.addEventListener("click",()=>{document.getElementById("col_out").style.display="block";})</script>
+        <pre v-if="colRan">{{ colTrailText || 'No lineage trail found.' }}</pre>
       </div>
 
       <!-- ======== SEARCH — B3 ======== -->
-      <div id="panel-search" class="panel">
+      <div id="panel-search" class="panel" v-show="panel==='search'">
         <div class="panel-title">🔎 Semantic Search</div>
         <div class="panel-desc">Find models by keyword, description, or column name. Results are ranked by relevance.</div>
-        <div id="search-examples"></div>
+        <div class="examples-bar">
+          <div class="examples-label">Examples</div>
+          <div class="examples-chips">
+            <span class="example-chip" style="cursor:pointer" @click="fill('searchQ','monthly revenue')">monthly revenue</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('searchQ','customer lifetime value')">customer lifetime value</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('searchQ','active users')">active users</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('searchQ','orders by country')">orders by country</span>
+          </div>
+        </div>
         <div class="card">
           <div class="form-group">
             <label class="form-label">Search query</label>
-            <input type="text" id="search_q" placeholder="revenue by country…" />
+            <input type="text" v-model="searchQ" placeholder="revenue by country…" @keydown.enter="runSearch" />
           </div>
-          <button class="btn btn-primary" id="run-search">Search</button>
+          <button class="btn btn-primary" @click="runSearch">Search</button>
         </div>
-        <div id="search-table"></div>
+        <data-table :rows="searchResults" :columns="searchCols" export-name="search-results" />
       </div>
 
       <!-- ======== CHAT — B1 ======== -->
-      <div id="panel-chat" class="panel">
+      <div id="panel-chat" class="panel" v-show="panel==='chat'">
         <div class="panel-title">💬 Chat with your dbt Project</div>
         <div class="panel-desc">Ask plain-English questions. The AI answers using your actual model graph. Bookmark any response with 🔖.</div>
-        <div id="chat-examples"></div>
-        <div class="chat-wrap">
-          <div class="chat-history" id="chat-history"></div>
-          <div class="chat-input-row">
-            <textarea id="chat_input" placeholder="Where is monthly active users calculated? (Shift+Enter for newline)"></textarea>
-            <button class="btn btn-primary" id="chat_send">Send</button>
+        <div class="examples-bar">
+          <div class="examples-label">Examples</div>
+          <div class="examples-chips">
+            <span class="example-chip" style="cursor:pointer" @click="fill('chatInput','Where is monthly active users calculated?')">Where is monthly active users calculated?</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('chatInput','Which models depend on stg_stripe__charges?')">Which models depend on stg_stripe__charges?</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('chatInput','What columns does fct_orders have?')">What columns does fct_orders have?</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('chatInput','How is revenue defined?')">How is revenue defined?</span>
           </div>
         </div>
-        <div id="chat-context"></div>
+        <div class="chat-wrap">
+          <div class="chat-history" ref="chatHistory">
+            <div v-for="msg in chatMessages" :key="msg.id" :class="'chat-bubble-wrap ' + msg.role">
+              <div class="chat-bubble" :id="msg.id" v-html="msg.html"></div>
+              <div class="chat-bubble-meta">
+                <span>{{ msg.ts }}</span>
+                <template v-if="msg.role==='bot'">
+                  <button @click="copyMsg(msg.id)" title="Copy">📋</button>
+                  <button @click="bookmarkMsg(msg)" title="Bookmark">🔖</button>
+                </template>
+              </div>
+            </div>
+            <div v-if="chatTyping" class="chat-typing">Thinking…</div>
+          </div>
+          <div class="chat-input-row">
+            <textarea v-model="chatInput" placeholder="Where is monthly active users calculated? (Shift+Enter for newline)"
+              @keydown.enter.exact.prevent="sendChat"></textarea>
+            <button class="btn btn-primary" @click="sendChat">Send</button>
+          </div>
+        </div>
       </div>
 
       <!-- ======== NL2SQL — B2 ======== -->
-      <div id="panel-nl2sql" class="panel">
+      <div id="panel-nl2sql" class="panel" v-show="panel==='nl2sql'">
         <div class="panel-title">🗣 Natural Language → SQL</div>
         <div class="panel-desc">Describe what you want in plain English. Get warehouse-ready SQL back. Optionally run it in BigQuery.</div>
-        <div id="nl2sql-examples"></div>
+        <div class="examples-bar">
+          <div class="examples-label">Examples</div>
+          <div class="examples-chips">
+            <span class="example-chip" style="cursor:pointer" @click="fill('nlQ','Top 10 customers by revenue last quarter')">Top 10 customers by revenue last quarter</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('nlQ','Monthly active users by country')">Monthly active users by country</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('nlQ','Churn rate by plan tier')">Churn rate by plan tier</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('nlQ','Average order value by product category')">Average order value by product category</span>
+          </div>
+        </div>
         <div class="card">
           <div class="form-group">
             <label class="form-label">Question</label>
-            <textarea id="nl_q" rows="3" placeholder="Top 10 customers by revenue last quarter"></textarea>
+            <textarea v-model="nlQ" rows="3" placeholder="Top 10 customers by revenue last quarter"></textarea>
           </div>
           <div class="form-group">
             <label class="form-label">SQL dialect</label>
-            <select id="nl_dialect">
-              <option>snowflake</option><option>bigquery</option><option>redshift</option>
-              <option>postgres</option><option>databricks</option><option>duckdb</option>
+            <select v-model="nlDialect">
+              <option>snowflake</option>
+              <option>bigquery</option>
+              <option>redshift</option>
+              <option>postgres</option>
+              <option>databricks</option>
+              <option>duckdb</option>
             </select>
           </div>
           <div class="btn-group">
-            <button class="btn btn-primary" id="run-nl2sql">Generate SQL</button>
-            <button class="btn btn-success" id="nl-run-bq" style="display:none">▶ Run in BigQuery</button>
+            <button class="btn btn-primary" @click="generateSQL">Generate SQL</button>
+            <button v-if="nlSqlReady" class="btn btn-success" @click="runNLInBQ">▶ Run in BigQuery</button>
           </div>
         </div>
-        <div class="code-block-wrap" id="nl-sql-wrap" style="display:none">
-          <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('nl_out').textContent)">Copy</button>
-          <pre id="nl_out"></pre>
+        <div v-if="nlSql" class="code-block-wrap">
+          <button class="copy-btn" @click="copyNLSql">Copy</button>
+          <pre>{{ nlSql }}</pre>
         </div>
-        <script>
-          document.getElementById("run-nl2sql")?.addEventListener("click",()=>{
-            document.getElementById("nl-sql-wrap").style.display="block";
-          });
-        </script>
-        <div id="nl-bq-result" style="margin-top:1rem"></div>
+        <data-table v-if="nlBqRows.length" :rows="nlBqRows" :columns="nlBqCols" export-name="nl2sql-result" style="margin-top:1rem" />
       </div>
 
       <!-- ======== DOCS — A1 ======== -->
-      <div id="panel-docs" class="panel">
+      <div id="panel-docs" class="panel" v-show="panel==='docs'">
         <div class="panel-title">📝 AI Documentation Generator</div>
         <div class="panel-desc">Auto-generates schema.yml descriptions for any model and its columns. Start by listing undocumented models.</div>
         <div class="btn-group" style="margin-bottom:.75rem">
-          <button class="btn btn-secondary" id="load-undocumented">List undocumented models</button>
+          <button class="btn btn-secondary" @click="listUndocumented">List undocumented models</button>
         </div>
-        <div id="undoc-table"></div>
+        <data-table :rows="undocRows" :columns="undocCols" export-name="undocumented" />
         <hr class="card-divider" style="margin:1.25rem 0"/>
         <div class="card">
           <div class="card-title" style="margin-bottom:.75rem">Generate YAML for a model</div>
           <div class="form-group">
             <label class="form-label">Model name</label>
-            <input type="text" id="doc_model" placeholder="dim_customers" />
+            <auto-input v-model="docModel" kind="model" placeholder="dim_customers" input-id="doc_model" />
           </div>
-          <button class="btn btn-primary" id="run-docs">Generate YAML</button>
+          <button class="btn btn-primary" @click="generateDocs" :disabled="docLoading">
+            {{ docLoading ? 'Generating…' : 'Generate YAML' }}
+          </button>
         </div>
-        <div id="doc_out" style="margin-top:.5rem"></div>
+        <div v-if="docYaml" class="code-block-wrap" style="margin-top:.5rem">
+          <button class="copy-btn" @click="copyDocYaml">Copy</button>
+          <pre>{{ docYaml }}</pre>
+        </div>
       </div>
 
       <!-- ======== SCAFFOLD — A2 ======== -->
-      <div id="panel-scaffold" class="panel">
+      <div id="panel-scaffold" class="panel" v-show="panel==='scaffold'">
         <div class="panel-title">🏗 Model Scaffolding</div>
         <div class="panel-desc">Generate a complete dbt model (SQL + schema.yml) from a plain-English brief. Uses ref() and source() from your project.</div>
-        <div id="scaffold-examples"></div>
+        <div class="examples-bar">
+          <div class="examples-label">Examples</div>
+          <div class="examples-chips">
+            <span class="example-chip" style="cursor:pointer" @click="fill('scafBrief','Daily revenue by country joining orders and customers')">Daily revenue by country joining orders and customers</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('scafBrief','Monthly active users grouped by plan tier')">Monthly active users grouped by plan tier</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('scafBrief','Cohort retention table from events')">Cohort retention table from events</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('scafBrief','Inventory levels by warehouse and SKU')">Inventory levels by warehouse and SKU</span>
+          </div>
+        </div>
         <div class="card">
           <div class="form-group">
             <label class="form-label">Brief — describe what the model should do</label>
-            <textarea id="scaf_brief" rows="3" placeholder="Daily revenue by country joining orders and customers, last 90 days"></textarea>
+            <textarea v-model="scafBrief" rows="3" placeholder="Daily revenue by country joining orders and customers, last 90 days"></textarea>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
             <div class="form-group" style="margin:0">
               <label class="form-label">Layer</label>
-              <select id="scaf_layer"><option>staging</option><option>intermediate</option><option selected>marts</option></select>
+              <select v-model="scafLayer">
+                <option>staging</option>
+                <option>intermediate</option>
+                <option value="marts" selected>marts</option>
+              </select>
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Materialization</label>
-              <select id="scaf_mat"><option selected>table</option><option>view</option><option>incremental</option><option>ephemeral</option></select>
+              <select v-model="scafMat">
+                <option value="table" selected>table</option>
+                <option>view</option>
+                <option>incremental</option>
+                <option>ephemeral</option>
+              </select>
             </div>
           </div>
-          <button class="btn btn-primary" id="run-scaffold">Generate model</button>
+          <button class="btn btn-primary" @click="scaffoldModel" :disabled="scafLoading">
+            {{ scafLoading ? 'Generating…' : 'Generate model' }}
+          </button>
         </div>
-        <div id="scaf_out"></div>
+        <template v-if="scafSql">
+          <div class="card">
+            <div class="card-title">{{ scafName }}.sql</div>
+            <div class="code-block-wrap">
+              <button class="copy-btn" @click="copyScafSql">Copy</button>
+              <pre>{{ scafSql }}</pre>
+            </div>
+          </div>
+          <div class="card" v-if="scafYaml">
+            <div class="card-title">schema.yml</div>
+            <div class="code-block-wrap">
+              <button class="copy-btn" @click="copyScafYaml">Copy</button>
+              <pre>{{ scafYaml }}</pre>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- ======== STAGING — A3 ======== -->
-      <div id="panel-staging" class="panel">
+      <div id="panel-staging" class="panel" v-show="panel==='staging'">
         <div class="panel-title">🧱 Staging Layer Generator</div>
         <div class="panel-desc">Turns a RAW source table into a clean stg_* model following the CTE pattern.</div>
-        <div id="staging-examples"></div>
+        <div class="examples-bar">
+          <div class="examples-label">Examples</div>
+          <div class="examples-chips">
+            <span class="example-chip" style="cursor:pointer" @click="fill('stgSrc','stripe'); fill('stgTbl','charges')">stripe · charges</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('stgSrc','salesforce'); fill('stgTbl','accounts')">salesforce · accounts</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('stgSrc','postgres'); fill('stgTbl','users')">postgres · users</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('stgSrc','shopify'); fill('stgTbl','orders')">shopify · orders</span>
+          </div>
+        </div>
         <div class="card">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
             <div class="form-group" style="margin:0">
               <label class="form-label">Source name</label>
-              <input type="text" id="stg_src" placeholder="stripe" />
+              <auto-input v-model="stgSrc" kind="source" placeholder="stripe" input-id="stg_src" />
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Table name</label>
-              <input type="text" id="stg_tbl" placeholder="charges" />
+              <input type="text" v-model="stgTbl" placeholder="charges" />
             </div>
           </div>
           <div class="form-group" style="margin-top:.75rem">
             <label class="form-label">Columns CSV (name,type — one per line, optional if in manifest)</label>
-            <textarea id="stg_cols" rows="5" placeholder="id,number&#10;created_at,timestamp&#10;amount,number&#10;status,varchar"></textarea>
+            <textarea v-model="stgCols" rows="5" placeholder="id,number&#10;created_at,timestamp&#10;amount,number&#10;status,varchar"></textarea>
           </div>
-          <button class="btn btn-primary" id="run-staging">Generate staging model</button>
+          <button class="btn btn-primary" @click="generateStaging" :disabled="stgLoading">
+            {{ stgLoading ? 'Generating…' : 'Generate staging model' }}
+          </button>
         </div>
-        <div id="stg_out"></div>
+        <template v-if="stgSql">
+          <div class="card">
+            <div class="card-title">{{ stgName }}.sql</div>
+            <div class="code-block-wrap">
+              <button class="copy-btn" @click="copyStgSql">Copy</button>
+              <pre>{{ stgSql }}</pre>
+            </div>
+          </div>
+          <div class="card" v-if="stgYaml">
+            <div class="card-title">schema.yml</div>
+            <div class="code-block-wrap">
+              <button class="copy-btn" @click="copyStgYaml">Copy</button>
+              <pre>{{ stgYaml }}</pre>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- ======== INCREMENTAL — A4 ======== -->
-      <div id="panel-incremental" class="panel">
+      <div id="panel-incremental" class="panel" v-show="panel==='incremental'">
         <div class="panel-title">⚡ Incremental Model Advisor</div>
         <div class="panel-desc">Scans all models and scores incremental suitability. Rewrites the selected model as a proper incremental model.</div>
         <div class="btn-group" style="margin-bottom:.75rem">
-          <button class="btn btn-secondary" id="load-incr-analyze">Analyze project</button>
+          <button class="btn btn-secondary" @click="analyzeIncremental">Analyze project</button>
         </div>
-        <div id="incr-table"></div>
+        <data-table :rows="incrRows" :columns="incrCols" :booleans="['recommend_incremental']" export-name="incremental-candidates" />
         <hr class="card-divider" style="margin:1.25rem 0"/>
         <div class="card">
           <div class="card-title" style="margin-bottom:.75rem">Rewrite a model as incremental</div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem">
             <div class="form-group" style="margin:0">
               <label class="form-label">Model</label>
-              <input type="text" id="incr_model" placeholder="fct_orders" />
+              <auto-input v-model="incrModel" kind="model" placeholder="fct_orders" input-id="incr_model" />
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Timestamp column</label>
-              <input type="text" id="incr_ts" placeholder="updated_at" />
+              <input type="text" v-model="incrTs" placeholder="updated_at" />
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Strategy</label>
-              <select id="incr_strategy"><option>merge</option><option>append</option><option>delete+insert</option><option>insert_overwrite</option></select>
+              <select v-model="incrStrategy">
+                <option>merge</option>
+                <option>append</option>
+                <option>delete+insert</option>
+                <option>insert_overwrite</option>
+              </select>
             </div>
           </div>
-          <button class="btn btn-primary" id="run-incr-rewrite" style="margin-top:.75rem">Rewrite</button>
+          <button class="btn btn-primary" @click="rewriteIncremental" :disabled="incrLoading" style="margin-top:.75rem">
+            {{ incrLoading ? 'Rewriting…' : 'Rewrite' }}
+          </button>
         </div>
-        <div id="incr_out"></div>
+        <template v-if="incrResult">
+          <div class="code-block-wrap" style="margin-top:.75rem">
+            <button class="copy-btn" @click="copyIncrResult">Copy</button>
+            <pre>{{ incrResult }}</pre>
+          </div>
+          <p v-if="incrNotes" style="color:#64748b;font-size:.85rem;margin-top:.5rem">{{ incrNotes }}</p>
+        </template>
       </div>
 
       <!-- ======== TESTS — C1 ======== -->
-      <div id="panel-tests" class="panel">
+      <div id="panel-tests" class="panel" v-show="panel==='tests'">
         <div class="panel-title">✅ AI Test Generator</div>
         <div class="panel-desc">Paste a CSV sample of your model's data and get a schema.yml tests block: unique, not_null, accepted_values, relationships.</div>
-        <div id="tests-examples"></div>
+        <div class="examples-bar">
+          <div class="examples-label">Examples</div>
+          <div class="examples-chips">
+            <span class="example-chip" style="cursor:pointer" @click="fill('testModel','dim_customers'); fill('testCsv','id,email,status')">dim_customers · id,email,status</span>
+            <span class="example-chip" style="cursor:pointer" @click="fill('testModel','fct_orders'); fill('testCsv','order_id,customer_id,amount')">fct_orders · order_id,customer_id,amount</span>
+          </div>
+        </div>
         <div class="card">
           <div class="form-group">
             <label class="form-label">Model name</label>
-            <input type="text" id="test_model" placeholder="dim_customers" />
+            <auto-input v-model="testModel" kind="model" placeholder="dim_customers" input-id="test_model" />
           </div>
           <div class="form-group">
             <label class="form-label">CSV sample (header row required, 10–50 rows recommended)</label>
-            <textarea id="test_csv" rows="8" placeholder="id,email,status,created_at&#10;1,alice@example.com,active,2024-01-01&#10;2,bob@example.com,churned,2024-01-05"></textarea>
+            <textarea v-model="testCsv" rows="8" placeholder="id,email,status,created_at&#10;1,alice@example.com,active,2024-01-01&#10;2,bob@example.com,churned,2024-01-05"></textarea>
           </div>
-          <button class="btn btn-primary" id="run-tests">Generate tests</button>
+          <button class="btn btn-primary" @click="generateTests" :disabled="testLoading">
+            {{ testLoading ? 'Generating…' : 'Generate tests' }}
+          </button>
         </div>
-        <div id="test_out"></div>
+        <div v-if="testYaml" class="code-block-wrap" style="margin-top:.5rem">
+          <button class="copy-btn" @click="copyTestYaml">Copy</button>
+          <pre>{{ testYaml }}</pre>
+        </div>
       </div>
 
       <!-- ======== ANOMALY — C2 ======== -->
-      <div id="panel-anomaly" class="panel">
+      <div id="panel-anomaly" class="panel" v-show="panel==='anomaly'">
         <div class="panel-title">🚨 Anomaly Detection Tests</div>
         <div class="panel-desc">Generates Elementary anomaly detection tests based on column names. Leave model blank to scan all models.</div>
         <div class="card" style="background:#fffbeb;border-color:#fde68a">
@@ -375,51 +554,67 @@
         <div class="card">
           <div class="form-group">
             <label class="form-label">Model name (optional — blank = all models)</label>
-            <input type="text" id="anom_model" placeholder="fct_orders" />
+            <auto-input v-model="anomModel" kind="model" placeholder="fct_orders" input-id="anom_model" />
           </div>
-          <button class="btn btn-primary" id="run-anomaly">Suggest anomaly tests</button>
+          <button class="btn btn-primary" @click="suggestAnomaly" :disabled="anomLoading">
+            {{ anomLoading ? 'Analyzing…' : 'Suggest anomaly tests' }}
+          </button>
         </div>
-        <div id="anom_out"></div>
+        <div v-for="x in anomResults" :key="x.model" class="card" style="margin-top:.5rem">
+          <div class="card-title">{{ x.model }}</div>
+          <div class="code-block-wrap">
+            <pre>{{ x.yaml }}</pre>
+          </div>
+          <p style="font-size:.78rem;color:#64748b;margin-top:.5rem">Requires: <code>{{ x.package_required }}</code></p>
+        </div>
       </div>
 
       <!-- ======== TEAMS — E2 ======== -->
-      <div id="panel-teams" class="panel">
+      <div id="panel-teams" class="panel" v-show="panel==='teams'">
         <div class="panel-title">💼 Microsoft Teams Bot</div>
         <div class="panel-desc">Connect AIinDbt to your Teams channel. Use the command tester below to preview any command before wiring Teams.</div>
 
         <div class="card">
           <div class="card-header"><div class="card-title">Try a command</div></div>
           <p class="card-subtitle" style="margin-bottom:.75rem">Same handler Teams uses. Works without Teams configured.</p>
-          <div id="cmd-examples"></div>
-          <div class="form-group">
-            <input type="text" id="cmd_in" placeholder="/help · /health · /sql top customers · where is MAU defined?" />
+          <div class="examples-bar">
+            <div class="examples-label">Examples</div>
+            <div class="examples-chips">
+              <span class="example-chip" style="cursor:pointer" @click="fill('cmdInput','/help')">/help</span>
+              <span class="example-chip" style="cursor:pointer" @click="fill('cmdInput','/health')">/health</span>
+              <span class="example-chip" style="cursor:pointer" @click="fill('cmdInput','/quality 5')">/quality 5</span>
+              <span class="example-chip" style="cursor:pointer" @click="fill('cmdInput','/sql top customers')">/sql top customers</span>
+              <span class="example-chip" style="cursor:pointer" @click="fill('cmdInput','/docs dim_customers')">/docs dim_customers</span>
+              <span class="example-chip" style="cursor:pointer" @click="fill('cmdInput','/anomaly fct_orders')">/anomaly fct_orders</span>
+            </div>
           </div>
-          <button class="btn btn-primary" id="run-command">Run</button>
-          <pre id="cmd_out" style="margin-top:.75rem;display:none"></pre>
-          <script>document.getElementById("run-command")?.addEventListener("click",()=>{document.getElementById("cmd_out").style.display="block";})</script>
+          <div class="form-group">
+            <input type="text" v-model="cmdInput" placeholder="/help · /health · /sql top customers · where is MAU defined?" />
+          </div>
+          <button class="btn btn-primary" @click="runCommand">Run</button>
+          <pre v-if="cmdRan" style="margin-top:.75rem">{{ cmdOutput }}</pre>
         </div>
 
         <div class="card">
           <div class="card-header"><div class="card-title">Push a message to a channel</div></div>
           <div class="form-group">
             <label class="form-label">Message text</label>
-            <input type="text" id="tm_txt" value="Hello from AIinDbt 👋" />
+            <input type="text" v-model="tmTxt" />
           </div>
-          <button class="btn btn-secondary" id="run-teams-test">Send via Incoming Webhook</button>
-          <pre id="tm_out" style="margin-top:.75rem;display:none"></pre>
-          <script>document.getElementById("run-teams-test")?.addEventListener("click",()=>{document.getElementById("tm_out").style.display="block";})</script>
+          <button class="btn btn-secondary" @click="sendTeamsTest">Send via Incoming Webhook</button>
+          <pre v-if="tmRan" style="margin-top:.75rem">{{ tmOutput }}</pre>
         </div>
 
         <div class="card">
           <div class="card-header"><div class="card-title">Setup guide</div></div>
           <p style="font-size:.82rem;color:#64748b;margin-bottom:.75rem">Outgoing Webhook URL to paste in Teams:</p>
-          <code id="teams_url_display" style="display:block;padding:.5rem;background:#f1f5f9;border-radius:6px;font-size:.82rem;word-break:break-all"></code>
+          <code style="display:block;padding:.5rem;background:#f1f5f9;border-radius:6px;font-size:.82rem;word-break:break-all">{{ teamsWebhookUrl }}</code>
           <p style="font-size:.8rem;color:#64748b;margin-top:.75rem">See the <b>Documentation → Microsoft Teams Setup</b> page for full step-by-step instructions.</p>
         </div>
       </div>
 
       <!-- ======== BIGQUERY ======== -->
-      <div id="panel-bigquery" class="panel">
+      <div id="panel-bigquery" class="panel" v-show="panel==='bigquery'">
         <div class="panel-title">🔗 BigQuery</div>
         <div class="panel-desc">Run SQL queries directly against your BigQuery project. Upload a service account JSON or use Application Default Credentials.</div>
 
@@ -428,10 +623,10 @@
           <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem">
             <div class="form-group" style="margin:0;flex:1;min-width:180px">
               <label class="form-label">Project ID</label>
-              <input type="text" id="bq_project_id" placeholder="my-gcp-project" />
+              <input type="text" v-model="bqProjectId" placeholder="my-gcp-project" />
             </div>
             <div style="display:flex;align-items:flex-end;gap:.4rem">
-              <button class="btn btn-secondary" id="bq-set-project">Save</button>
+              <button class="btn btn-secondary" @click="saveBQProject">Save</button>
             </div>
           </div>
           <div class="form-group">
@@ -439,26 +634,42 @@
             <input type="file" id="bq_key_file" accept=".json" />
           </div>
           <div class="btn-group">
-            <button class="btn btn-primary" id="bq-upload-key">Upload key</button>
-            <button class="btn btn-secondary" id="bq-test">Test connection</button>
+            <button class="btn btn-primary" @click="uploadBQKey">Upload key</button>
+            <button class="btn btn-secondary" @click="testBQConnection">Test connection</button>
           </div>
-          <p id="bq_status" style="margin-top:.6rem;font-size:.82rem"></p>
+          <p v-if="bqStatus" style="margin-top:.6rem;font-size:.82rem" :style="bqStatusOk ? 'color:#15803d' : 'color:#dc2626'">{{ bqStatus }}</p>
         </div>
 
         <div class="card">
           <div class="card-header"><div class="card-title">Run a query</div></div>
-          <div id="bq-examples"></div>
+          <div class="examples-bar">
+            <div class="examples-label">Examples</div>
+            <div class="examples-chips">
+              <span class="example-chip" style="cursor:pointer" @click="fill('bqSql','SELECT * FROM `project.dataset.table` LIMIT 100')">SELECT * FROM `project.dataset.table` LIMIT 100</span>
+              <span class="example-chip" style="cursor:pointer" @click="fill('bqSql','SELECT DATE(created_at), COUNT(*) n FROM orders GROUP BY 1')">SELECT DATE(created_at), COUNT(*) n FROM orders GROUP BY 1</span>
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">SQL</label>
-            <textarea id="bq_sql" rows="6" placeholder="SELECT * FROM `project.dataset.table` LIMIT 100"></textarea>
+            <textarea v-model="bqSql" rows="6" placeholder="SELECT * FROM `project.dataset.table` LIMIT 100"></textarea>
           </div>
-          <button class="btn btn-success" id="run-bq-query">▶ Run query</button>
+          <button class="btn btn-success" @click="runBQQuery" :disabled="bqLoading">
+            {{ bqLoading ? 'Running…' : '▶ Run query' }}
+          </button>
         </div>
-        <div id="bq_result"></div>
+
+        <template v-if="bqInfo">
+          <div class="bq-result-info">
+            <span>Rows: <strong>{{ bqInfo.rowCount }}{{ bqInfo.truncated ? '+' : '' }}</strong></span>
+            <span v-if="bqInfo.bytesProcessed">Scanned: <strong>{{ (bqInfo.bytesProcessed / 1e6).toFixed(1) }} MB</strong></span>
+            <span v-if="bqInfo.truncated" style="color:#b45309">⚠ Truncated to 500 rows</span>
+          </div>
+        </template>
+        <data-table v-if="bqRows.length" :rows="bqRows" :columns="bqCols" export-name="bigquery-result" />
       </div>
 
       <!-- ======== SETTINGS ======== -->
-      <div id="panel-settings" class="panel">
+      <div id="panel-settings" class="panel" v-show="panel==='settings'">
         <div class="panel-title">⚙ Settings</div>
         <div class="panel-desc">All settings are kept in memory only — nothing is written to disk. Re-enter after server restart.</div>
 
@@ -466,17 +677,17 @@
           <div class="card-header"><div class="card-title">LLM — Cline / Anthropic / OpenRouter</div></div>
           <div class="form-group">
             <label class="form-label">API key</label>
-            <input type="password" id="llm_api_key" placeholder="sk-ant-… or your Cline key" />
+            <input type="password" v-model="llmApiKey" placeholder="sk-ant-… or your Cline key" />
             <div class="form-hint">For Cline or OpenRouter, paste your gateway key here.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Base URL <span style="font-weight:400;color:#94a3b8">(leave blank for Anthropic direct)</span></label>
-            <input type="text" id="llm_base_url" placeholder="https://openrouter.ai/api/v1" />
+            <input type="text" v-model="llmBaseUrl" placeholder="https://openrouter.ai/api/v1" />
             <div class="form-hint">Any URL containing <code>openrouter</code>, <code>cline</code>, or <code>/v1/chat</code> auto-switches to OpenAI-compatible mode.</div>
           </div>
           <div class="form-group">
             <label class="form-label">Model</label>
-            <input type="text" id="llm_model" placeholder="claude-sonnet-4-6" />
+            <input type="text" v-model="llmModel" placeholder="claude-sonnet-4-6" />
           </div>
         </div>
 
@@ -499,19 +710,19 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
             <div class="form-group" style="margin:0">
               <label class="form-label">Host</label>
-              <input type="text" id="dbt_cloud_host" placeholder="cloud.getdbt.com" />
+              <input type="text" v-model="dbtCloudHost" placeholder="cloud.getdbt.com" />
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Account ID</label>
-              <input type="text" id="dbt_cloud_account_id" />
+              <input type="text" v-model="dbtCloudAccountId" />
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Project ID</label>
-              <input type="text" id="dbt_cloud_project_id" />
+              <input type="text" v-model="dbtCloudProjectId" />
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Service Token</label>
-              <input type="password" id="dbt_cloud_token" />
+              <input type="password" v-model="dbtCloudToken" />
             </div>
           </div>
         </div>
@@ -520,29 +731,42 @@
           <div class="card-header"><div class="card-title">Microsoft Teams <span style="font-weight:400;font-size:.8rem;color:#94a3b8">(optional)</span></div></div>
           <div class="form-group">
             <label class="form-label">Outgoing Webhook HMAC secret</label>
-            <input type="password" id="teams_outgoing_secret" placeholder="base64-encoded secret from Teams" />
+            <input type="password" v-model="teamsSecret" placeholder="base64-encoded secret from Teams" />
             <div class="form-hint">Teams → channel ⋯ → Connectors → Outgoing Webhooks → copy secret</div>
           </div>
           <div class="form-group">
             <label class="form-label">Incoming Webhook URL</label>
-            <input type="text" id="teams_incoming_webhook" placeholder="https://outlook.office.com/webhook/…" />
+            <input type="text" v-model="teamsWebhook" placeholder="https://outlook.office.com/webhook/…" />
             <div class="form-hint">Teams → channel ⋯ → Connectors → Incoming Webhook → copy URL</div>
           </div>
         </div>
 
-        <button class="btn btn-primary" id="save-settings">Save all settings</button>
+        <button class="btn btn-primary" @click="saveSettings">Save all settings</button>
       </div>
 
       <!-- ======== DOCUMENTATION ======== -->
-      <div id="panel-apidocs" class="panel">
+      <div id="panel-apidocs" class="panel" v-show="panel==='apidocs'">
         <div class="panel-title">📖 Documentation</div>
         <div class="panel-desc">Full reference for every feature, integration setup, and troubleshooting.</div>
         <div class="form-group" style="margin-bottom:.75rem">
-          <input type="text" id="docs-search" placeholder="Search pages…" style="max-width:280px" />
+          <input type="text" v-model="docsSearch" placeholder="Search pages…" style="max-width:280px" />
         </div>
         <div class="docs-shell">
-          <nav class="docs-sidebar" id="docs-sidebar-nav"></nav>
-          <article class="docs-content" id="docs-content-area"></article>
+          <nav class="docs-sidebar">
+            <div v-for="(pages, section) in docsBySection" :key="section">
+              <div class="docs-sidebar-section">{{ section }}</div>
+              <div v-for="p in pages" :key="p.id"
+                class="docs-sidebar-item" :class="{active: docsCurrent===p.id}"
+                @click="docsCurrent=p.id">{{ p.title }}</div>
+            </div>
+          </nav>
+          <article class="docs-content" v-if="currentDoc">
+            <div style="border-bottom:1px solid #e2e8f0;margin-bottom:1.25rem;padding-bottom:.75rem">
+              <div style="font-size:.72rem;color:#94a3b8;text-transform:uppercase;margin-bottom:.2rem">{{ currentDoc.section }}</div>
+              <h1>{{ currentDoc.title }}</h1>
+            </div>
+            <div v-html="currentDoc.body"></div>
+          </article>
         </div>
       </div>
 
@@ -550,6 +774,8 @@
   </div><!-- /main-content -->
 </div><!-- /app-shell -->
 
-<script defer src="/static/app.js"></script>
+</div><!-- /#app -->
+
+<script src="/static/app.js"></script>
 </body>
 </html>
