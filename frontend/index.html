@@ -4,6 +4,8 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>AIinDbt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css"/>
 <script src="/static/vue.global.prod.js"></script>
 <script src="/static/vis-network.min.js"></script>
@@ -344,7 +346,8 @@
         <div class="btn-group" style="margin-bottom:.75rem">
           <button class="btn btn-secondary" @click="listUndocumented">List undocumented models</button>
         </div>
-        <data-table :rows="undocRows" :columns="undocCols" export-name="undocumented" />
+        <data-table :rows="undocRows" :columns="undocCols" export-name="undocumented" :row-clickable="true" @row-click="docModel = $event.name; $el.querySelector('#doc_model') && $el.querySelector('#doc_model').focus()" />
+        <p v-if="undocRows.length" style="font-size:.8rem;color:var(--md-primary);margin:.4rem 0 .75rem">↑ Click a row to select that model below</p>
         <hr class="card-divider" style="margin:1.25rem 0"/>
         <div class="card">
           <div class="card-title" style="margin-bottom:.75rem">Generate YAML for a model</div>
@@ -478,7 +481,8 @@
         <div class="btn-group" style="margin-bottom:.75rem">
           <button class="btn btn-secondary" @click="analyzeIncremental">Analyze project</button>
         </div>
-        <data-table :rows="incrRows" :columns="incrCols" :booleans="['recommend_incremental']" export-name="incremental-candidates" />
+        <data-table :rows="incrRows" :columns="incrCols" :booleans="['recommend_incremental']" export-name="incremental-candidates" :row-clickable="true" @row-click="incrModel = $event.name" />
+        <p v-if="incrRows.length" style="font-size:.8rem;color:var(--md-primary);margin:.4rem 0 .75rem">↑ Click a row to select that model for rewriting below</p>
         <hr class="card-divider" style="margin:1.25rem 0"/>
         <div class="card">
           <div class="card-title" style="margin-bottom:.75rem">Rewrite a model as incremental</div>

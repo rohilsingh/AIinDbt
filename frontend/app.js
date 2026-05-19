@@ -191,6 +191,7 @@ var DataTableComp = {
     exportName: { type: String, default: 'export' },
     badges:     { type: Array,  default: function() { return []; } },
     booleans:   { type: Array,  default: function() { return []; } },
+    rowClickable: { type: Boolean, default: false },
   },
   data: function() { return { q: '', filterCol: '', page: 0, sortKey: null, sortDir: 1, pageSize: 50 }; },
   watch: {
@@ -274,7 +275,7 @@ var DataTableComp = {
           </thead>\
           <tbody>\
             <tr v-if="!paged.length"><td :colspan="columns.length" class="table-empty">No results</td></tr>\
-            <tr v-for="(row,ri) in paged" :key="ri">\
+            <tr v-for="(row,ri) in paged" :key="ri" :class="{\'row-clickable\': rowClickable}" :style="rowClickable ? \'cursor:pointer\' : \'\'" @click="rowClickable ? $emit(\'row-click\', row) : null">\
               <td v-for="col in columns" :key="col.key">\
                 <span v-if="badges.includes(col.key)" :class="\'grade-\'+(row[col.key]||\'\')">{{ row[col.key]==null?\'\':row[col.key] }}</span>\
                 <span v-else-if="booleans.includes(col.key)">{{ row[col.key] ? \'✅ Yes\' : \'—\' }}</span>\
