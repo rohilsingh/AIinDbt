@@ -11,6 +11,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+import httpx
+
 from . import dbt_client
 from .state import SETTINGS, configured
 from .features import (
@@ -50,6 +52,10 @@ class SettingsIn(BaseModel):
     warehouse_dsn: str | None = None
     teams_outgoing_secret: str | None = None
     teams_incoming_webhook: str | None = None
+    gitlab_base_url: str | None = None
+    gitlab_token: str | None = None
+    gitlab_project: str | None = None
+    gitlab_branch: str | None = None
 
 
 @app.get("/api/settings")
@@ -66,6 +72,10 @@ def get_settings() -> dict:
         "warehouse_dsn_set": bool(SETTINGS.warehouse_dsn),
         "teams_outgoing_secret_set": bool(SETTINGS.teams_outgoing_secret),
         "teams_incoming_webhook_set": bool(SETTINGS.teams_incoming_webhook),
+        "gitlab_base_url": SETTINGS.gitlab_base_url,
+        "gitlab_token_set": bool(SETTINGS.gitlab_token),
+        "gitlab_project": SETTINGS.gitlab_project,
+        "gitlab_branch": SETTINGS.gitlab_branch,
         "configured": configured(),
         "manifest_models": len(dbt_client.models()),
     }
@@ -274,9 +284,19 @@ def models_list() -> dict:
          "source_name": n.get("source_name"), "schema": n.get("schema")}
         for n in dbt_client.sources()
     ]
+    # source tables: unique (source_name, table_name) pairs
+    src_tables_out = list({
+        (n.get("source_name", ""), n.get("name", "")): {
+            "source_name": n.get("source_name", ""),
+            "table_name": n.get("name", ""),
+            "kind": "source_table",
+        }
+        for n in dbt_client.sources()
+    }.values())
     return {
         "models": models_out,
         "sources": sources_out,
+        "source_tables": src_tables_out,
         "all": [m["name"] for m in models_out] + [s["name"] for s in sources_out],
     }
 
@@ -339,6 +359,89 @@ def bq_test() -> dict:
 @app.post("/api/bigquery/query")
 def bq_query(p: BQQueryIn) -> dict:
     return bigquery_client.run_query(p.sql, p.max_rows)
+
+
+# ---- SQL optimizer ---------------------------------------------------------
+
+class SqlOptimizeIn(BaseModel):
+    sql: str
+    vendor: str = "snowflake"
+
+
+@app.post("/api/sql/optimize")
+def sql_optimize(p: SqlOptimizeIn) -> dict:
+    import re
+    from . import llm as _llm
+    prompt = (
+        f"You are a {p.vendor} SQL performance expert. Analyze the following dbt SQL model "
+        f"and suggest concrete optimizations for {p.vendor}. "
+        "Respond ONLY with valid JSON matching exactly this schema:\n"
+        '{"issues": [{"severity":"high|medium|low","description":"..."}], '
+        '"optimized_sql": "...", '
+        '"changes": ["change 1", "change 2"], '
+        '"improvement_estimate": "e.g. ~40% faster"}\n\n'
+        f"SQL:\n```sql\n{p.sql}\n```"
+    )
+    raw = _llm.chat(prompt)
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if not m:
+        return {"issues": [], "optimized_sql": p.sql, "changes": [], "improvement_estimate": "N/A", "raw": raw}
+    try:
+        return json.loads(m.group())
+    except json.JSONDecodeError:
+        return {"issues": [], "optimized_sql": p.sql, "changes": [], "improvement_estimate": "N/A", "raw": raw}
+
+
+# ---- GitLab ----------------------------------------------------------------
+
+def _gl_headers() -> dict:
+    return {"PRIVATE-TOKEN": SETTINGS.gitlab_token, "Content-Type": "application/json"}
+
+
+def _gl_base() -> str:
+    return SETTINGS.gitlab_base_url.rstrip("/")
+
+
+@app.get("/api/gitlab/branches")
+def gitlab_branches() -> list[str]:
+    if not SETTINGS.gitlab_token or not SETTINGS.gitlab_project:
+        raise HTTPException(400, "GitLab token and project are required")
+    encoded = SETTINGS.gitlab_project.replace("/", "%2F")
+    url = f"{_gl_base()}/api/v4/projects/{encoded}/repository/branches?per_page=50"
+    r = httpx.get(url, headers=_gl_headers(), timeout=10)
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, r.text[:200])
+    return [b["name"] for b in r.json()]
+
+
+class GitlabPushIn(BaseModel):
+    file_path: str        # e.g. "models/marts/fct_orders.sql"
+    content: str
+    branch: str = ""      # blank = use SETTINGS.gitlab_branch
+    commit_message: str = "feat: add generated dbt model via AIinDbt"
+
+
+@app.post("/api/gitlab/push")
+def gitlab_push(p: GitlabPushIn) -> dict:
+    if not SETTINGS.gitlab_token or not SETTINGS.gitlab_project:
+        raise HTTPException(400, "GitLab token and project are required")
+    branch = p.branch or SETTINGS.gitlab_branch or "main"
+    encoded_proj = SETTINGS.gitlab_project.replace("/", "%2F")
+    encoded_path = p.file_path.replace("/", "%2F")
+    base_url = f"{_gl_base()}/api/v4/projects/{encoded_proj}/repository/files/{encoded_path}"
+
+    # try PUT (update) first, then POST (create)
+    payload = {
+        "branch": branch,
+        "content": p.content,
+        "commit_message": p.commit_message,
+    }
+    r = httpx.put(base_url, headers=_gl_headers(), json=payload, timeout=15)
+    if r.status_code == 400:  # file doesn't exist
+        r = httpx.post(base_url, headers=_gl_headers(), json=payload, timeout=15)
+    if r.status_code not in (200, 201):
+        raise HTTPException(r.status_code, r.text[:300])
+    return {"ok": True, "branch": branch, "file_path": p.file_path}
 
 
 # ---- frontend --------------------------------------------------------------

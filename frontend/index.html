@@ -32,9 +32,16 @@
   <div class="drawer-body" id="bookmarks-body">
     <div v-if="!chatBookmarks.length" class="drawer-empty">No bookmarks yet.<br>Click 🔖 on any AI response.</div>
     <div v-for="b in chatBookmarks" :key="b.id" class="bookmark-item">
-      <div class="bm-label">{{ new Date(b.ts).toLocaleString() }}</div>
-      <pre>{{ (b.text || '').slice(0, 400) }}{{ (b.text || '').length > 400 ? '…' : '' }}</pre>
-      <button class="bm-delete" @click="deleteBookmark(b.id)">✕</button>
+      <div class="bm-header">
+        <div class="bm-question">{{ b.question ? b.question.slice(0, 120) : '(no question)' }}</div>
+        <div class="bm-meta">{{ new Date(b.ts).toLocaleString() }}</div>
+        <div class="bm-actions">
+          <button @click="b.expanded = !b.expanded" :title="b.expanded ? 'Collapse' : 'Expand'">{{ b.expanded ? '▲' : '▼' }}</button>
+          <button @click="copyBookmark(b)" title="Copy">📋</button>
+          <button @click="deleteBookmark(b.id)" title="Delete">✕</button>
+        </div>
+      </div>
+      <div v-if="b.expanded" class="bm-answer">{{ b.answer }}</div>
     </div>
   </div>
 </aside>
@@ -90,6 +97,13 @@
       </div>
       <div class="sidebar-item" :class="{active: panel==='search'}" @click="panel='search'; sidebarOpen=false">
         <span class="icon">🔎</span><span class="label">Semantic Search</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Optimization</div>
+      <div class="sidebar-item" :class="{active: panel==='sqlopt'}" @click="panel='sqlopt'; sidebarOpen=false">
+        <span class="icon">⚡</span><span class="label">SQL Optimizer</span>
       </div>
     </div>
 
@@ -229,7 +243,7 @@
         <div class="card">
           <div class="form-group">
             <label class="form-label">Model name</label>
-            <auto-input v-model="colModel" kind="model" placeholder="dim_customers" input-id="col_model" />
+            <auto-input v-model="colModel" kind="model" placeholder="dim_customers" input-id="col_model"></auto-input>
           </div>
           <div class="form-group">
             <label class="form-label">Column name</label>
@@ -353,15 +367,23 @@
           <div class="card-title" style="margin-bottom:.75rem">Generate YAML for a model</div>
           <div class="form-group">
             <label class="form-label">Model name</label>
-            <auto-input v-model="docModel" kind="model" placeholder="dim_customers" input-id="doc_model" />
+            <auto-input v-model="docModel" kind="model" placeholder="dim_customers" input-id="doc_model"></auto-input>
           </div>
           <button class="btn btn-primary" @click="generateDocs" :disabled="docLoading">
             {{ docLoading ? 'Generating…' : 'Generate YAML' }}
           </button>
         </div>
-        <div v-if="docYaml" class="code-block-wrap" style="margin-top:.5rem">
-          <button class="copy-btn" @click="copyDocYaml">Copy</button>
-          <pre>{{ docYaml }}</pre>
+        <div v-if="docYaml" class="card" style="margin-top:.5rem">
+          <div class="card-header">
+            <div class="card-title">schema.yml</div>
+            <div class="btn-group">
+              <button class="btn btn-secondary btn-sm" @click="copyDocYaml">Copy</button>
+              <button class="btn btn-sm btn-gitlab" @click="gitlabPush(docYaml, 'models/' + docModel + '.yml')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
+            </div>
+          </div>
+          <div class="code-block-wrap">
+            <pre>{{ docYaml }}</pre>
+          </div>
         </div>
       </div>
 
@@ -379,9 +401,37 @@
           </div>
         </div>
         <div class="card">
-          <div class="form-group">
+          <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
+            <button class="btn btn-secondary btn-sm" :class="{active: scafMode==='brief'}" @click="scafMode='brief'">Brief</button>
+            <button class="btn btn-secondary btn-sm" :class="{active: scafMode==='structured'}" @click="scafMode='structured'">Structured form</button>
+          </div>
+          <div v-if="scafMode==='brief'" class="form-group">
             <label class="form-label">Brief — describe what the model should do</label>
-            <textarea v-model="scafBrief" rows="3" placeholder="Daily revenue by country joining orders and customers, last 90 days"></textarea>
+            <textarea v-model="scafBrief" rows="4" placeholder="Daily revenue by country joining orders and customers, last 90 days"></textarea>
+          </div>
+          <div v-else>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Sources / refs</label>
+                <input type="text" v-model="scafSources" placeholder="stg_orders, stg_customers" @input="buildStructuredBrief" />
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Grain (row-level)</label>
+                <input type="text" v-model="scafGrain" placeholder="daily by country" @input="buildStructuredBrief" />
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Metrics / columns</label>
+                <input type="text" v-model="scafMetrics" placeholder="revenue, order_count" @input="buildStructuredBrief" />
+              </div>
+              <div class="form-group" style="margin:0">
+                <label class="form-label">Filters</label>
+                <input type="text" v-model="scafFilters" placeholder="last 90 days, status != cancelled" @input="buildStructuredBrief" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Generated brief (editable)</label>
+              <textarea v-model="scafBrief" rows="4" placeholder="Fill fields above or type here"></textarea>
+            </div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
             <div class="form-group" style="margin:0">
@@ -408,16 +458,26 @@
         </div>
         <template v-if="scafSql">
           <div class="card">
-            <div class="card-title">{{ scafName }}.sql</div>
+            <div class="card-header">
+              <div class="card-title">{{ scafName }}.sql</div>
+              <div class="btn-group">
+                <button class="btn btn-secondary btn-sm" @click="copyScafSql">Copy</button>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPush(scafSql, 'models/' + scafLayer + '/' + scafName + '.sql')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
+              </div>
+            </div>
             <div class="code-block-wrap">
-              <button class="copy-btn" @click="copyScafSql">Copy</button>
               <pre>{{ scafSql }}</pre>
             </div>
           </div>
           <div class="card" v-if="scafYaml">
-            <div class="card-title">schema.yml</div>
+            <div class="card-header">
+              <div class="card-title">schema.yml</div>
+              <div class="btn-group">
+                <button class="btn btn-secondary btn-sm" @click="copyScafYaml">Copy</button>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPush(scafYaml, 'models/' + scafLayer + '/' + scafName + '.yml')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
+              </div>
+            </div>
             <div class="code-block-wrap">
-              <button class="copy-btn" @click="copyScafYaml">Copy</button>
               <pre>{{ scafYaml }}</pre>
             </div>
           </div>
@@ -441,11 +501,11 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
             <div class="form-group" style="margin:0">
               <label class="form-label">Source name</label>
-              <auto-input v-model="stgSrc" kind="source" placeholder="stripe" input-id="stg_src" />
+              <auto-input v-model="stgSrc" kind="source_name" placeholder="stripe" input-id="stg_src"></auto-input>
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Table name</label>
-              <input type="text" v-model="stgTbl" placeholder="charges" />
+              <auto-input v-model="stgTbl" kind="source_table" :source-filter="stgSrc" placeholder="charges" input-id="stg_tbl"></auto-input>
             </div>
           </div>
           <div class="form-group" style="margin-top:.75rem">
@@ -458,16 +518,26 @@
         </div>
         <template v-if="stgSql">
           <div class="card">
-            <div class="card-title">{{ stgName }}.sql</div>
+            <div class="card-header">
+              <div class="card-title">{{ stgName }}.sql</div>
+              <div class="btn-group">
+                <button class="btn btn-secondary btn-sm" @click="copyStgSql">Copy</button>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPush(stgSql, 'models/staging/' + stgName + '.sql')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
+              </div>
+            </div>
             <div class="code-block-wrap">
-              <button class="copy-btn" @click="copyStgSql">Copy</button>
               <pre>{{ stgSql }}</pre>
             </div>
           </div>
           <div class="card" v-if="stgYaml">
-            <div class="card-title">schema.yml</div>
+            <div class="card-header">
+              <div class="card-title">schema.yml</div>
+              <div class="btn-group">
+                <button class="btn btn-secondary btn-sm" @click="copyStgYaml">Copy</button>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPush(stgYaml, 'models/staging/' + stgName + '.yml')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
+              </div>
+            </div>
             <div class="code-block-wrap">
-              <button class="copy-btn" @click="copyStgYaml">Copy</button>
               <pre>{{ stgYaml }}</pre>
             </div>
           </div>
@@ -489,7 +559,7 @@
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem">
             <div class="form-group" style="margin:0">
               <label class="form-label">Model</label>
-              <auto-input v-model="incrModel" kind="model" placeholder="fct_orders" input-id="incr_model" />
+              <auto-input v-model="incrModel" kind="model" placeholder="fct_orders" input-id="incr_model"></auto-input>
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Timestamp column</label>
@@ -532,7 +602,7 @@
         <div class="card">
           <div class="form-group">
             <label class="form-label">Model name</label>
-            <auto-input v-model="testModel" kind="model" placeholder="dim_customers" input-id="test_model" />
+            <auto-input v-model="testModel" kind="model" placeholder="dim_customers" input-id="test_model"></auto-input>
           </div>
           <div class="form-group">
             <label class="form-label">CSV sample (header row required, 10–50 rows recommended)</label>
@@ -558,7 +628,7 @@
         <div class="card">
           <div class="form-group">
             <label class="form-label">Model name (optional — blank = all models)</label>
-            <auto-input v-model="anomModel" kind="model" placeholder="fct_orders" input-id="anom_model" />
+            <auto-input v-model="anomModel" kind="model" placeholder="fct_orders" input-id="anom_model"></auto-input>
           </div>
           <button class="btn btn-primary" @click="suggestAnomaly" :disabled="anomLoading">
             {{ anomLoading ? 'Analyzing…' : 'Suggest anomaly tests' }}
@@ -672,6 +742,66 @@
         <data-table v-if="bqRows.length" :rows="bqRows" :columns="bqCols" export-name="bigquery-result" />
       </div>
 
+      <!-- ======== SQL OPTIMIZER ======== -->
+      <div id="panel-sqlopt" class="panel" v-show="panel==='sqlopt'">
+        <div class="panel-title">⚡ SQL Optimizer</div>
+        <div class="panel-desc">Paste an existing dbt model SQL query and get AI-powered optimization suggestions for your specific warehouse dialect.</div>
+        <div class="card">
+          <div style="display:flex;gap:.75rem;align-items:flex-end;margin-bottom:.75rem">
+            <div class="form-group" style="margin:0;flex:1">
+              <label class="form-label">SQL dialect / warehouse</label>
+              <select v-model="sqlVendor">
+                <option>snowflake</option>
+                <option>bigquery</option>
+                <option>redshift</option>
+                <option>postgres</option>
+                <option>databricks</option>
+                <option>duckdb</option>
+                <option>trino</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">SQL to optimize</label>
+            <textarea v-model="sqlInput" rows="12" placeholder="SELECT&#10;  o.customer_id,&#10;  SUM(o.amount) AS total_revenue&#10;FROM {{ ref('stg_orders') }} o&#10;JOIN {{ ref('stg_customers') }} c ON o.customer_id = c.id&#10;WHERE o.created_at &gt;= DATEADD(day, -90, CURRENT_DATE)&#10;GROUP BY 1"></textarea>
+          </div>
+          <button class="btn btn-primary" @click="optimizeSQL" :disabled="sqlLoading">
+            {{ sqlLoading ? 'Analyzing…' : '⚡ Optimize SQL' }}
+          </button>
+        </div>
+
+        <template v-if="sqlResult">
+          <div class="card">
+            <div class="card-header"><div class="card-title">Issues found</div></div>
+            <div v-if="sqlResult.improvement_estimate" class="improvement-chip">
+              Estimated improvement: {{ sqlResult.improvement_estimate }}
+            </div>
+            <div v-if="!sqlResult.issues || !sqlResult.issues.length" style="color:var(--md-outline);font-size:.85rem">No issues found — the SQL looks optimal!</div>
+            <div v-for="(issue, i) in sqlResult.issues" :key="i" class="sql-issue" :class="issue.severity">
+              <span class="sql-issue-sev">{{ issue.severity }}</span>
+              <span>{{ issue.description }}</span>
+            </div>
+          </div>
+
+          <div v-if="sqlResult.changes && sqlResult.changes.length" class="card">
+            <div class="card-header"><div class="card-title">Changes applied</div></div>
+            <ul style="padding-left:1.25rem;font-size:.85rem;line-height:1.8">
+              <li v-for="(ch, i) in sqlResult.changes" :key="i">{{ ch }}</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Optimized SQL</div>
+              <button class="btn btn-secondary btn-sm" @click="copySqlOptimized">Copy</button>
+            </div>
+            <div class="code-block-wrap">
+              <pre>{{ sqlResult.optimized_sql }}</pre>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <!-- ======== SETTINGS ======== -->
       <div id="panel-settings" class="panel" v-show="panel==='settings'">
         <div class="panel-title">⚙ Settings</div>
@@ -742,6 +872,35 @@
             <label class="form-label">Incoming Webhook URL</label>
             <input type="text" v-model="teamsWebhook" placeholder="https://outlook.office.com/webhook/…" />
             <div class="form-hint">Teams → channel ⋯ → Connectors → Incoming Webhook → copy URL</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">GitLab <span style="font-weight:400;font-size:.8rem;color:#94a3b8">(optional — push generated code)</span></div></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">GitLab Base URL</label>
+              <input type="text" v-model="gitlabBaseUrl" placeholder="https://gitlab.com" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Personal Access Token</label>
+              <input type="password" v-model="gitlabToken" placeholder="glpat-…" />
+              <div class="form-hint">Needs api scope (read+write repository)</div>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Project path</label>
+              <input type="text" v-model="gitlabProject" placeholder="myorg/my-dbt-repo" />
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Target branch</label>
+              <div style="display:flex;gap:.4rem">
+                <input type="text" v-model="gitlabBranch" placeholder="main" style="flex:1" />
+                <button class="btn btn-secondary btn-sm" @click="loadGitlabBranches" title="Load branches">↻</button>
+              </div>
+              <select v-if="gitlabBranches.length" v-model="gitlabBranch" style="margin-top:.35rem">
+                <option v-for="b in gitlabBranches" :key="b" :value="b">{{ b }}</option>
+              </select>
+            </div>
           </div>
         </div>
 

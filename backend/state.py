@@ -32,6 +32,12 @@ class Settings:
     bigquery_project_id: str = ""
     bigquery_service_account: dict = field(default_factory=dict)
 
+    # GitLab (optional)
+    gitlab_base_url: str = "https://gitlab.com"
+    gitlab_token: str = ""
+    gitlab_project: str = ""   # e.g. "myorg/my-dbt-repo"
+    gitlab_branch: str = "main"
+
 
 SETTINGS = Settings()
 

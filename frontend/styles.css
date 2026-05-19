@@ -946,3 +946,37 @@ pre {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--md-outline); }
+
+/* ============================================================
+   TABLE EXPAND TOGGLE
+   ============================================================ */
+.scroll-table-container { max-height: 420px; overflow-y: auto; transition: max-height .3s ease; }
+.scroll-table-container.expanded { max-height: 72vh; }
+
+/* ============================================================
+   BOOKMARK DRAWER — improved contrast & layout
+   ============================================================ */
+.bookmark-item { background: white; border: 1px solid var(--md-outline-variant); border-radius: var(--md-shape-md); padding: .75rem; margin-bottom: .65rem; font-size: .82rem; }
+.bm-header { display: flex; align-items: flex-start; gap: .4rem; }
+.bm-question { flex: 1; font-weight: 600; color: var(--md-on-surface); font-size: .82rem; line-height: 1.4; }
+.bm-meta { font-size: .72rem; color: var(--md-outline); white-space: nowrap; }
+.bm-actions { display: flex; gap: .25rem; }
+.bm-actions button { background: none; border: none; cursor: pointer; color: var(--md-outline); font-size: .9rem; padding: .1rem .25rem; border-radius: 4px; }
+.bm-actions button:hover { color: var(--md-primary); background: var(--md-primary-container); }
+.bm-answer { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--md-outline-variant); color: var(--md-on-surface-variant); font-size: .8rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+
+/* ============================================================
+   SQL OPTIMIZER
+   ============================================================ */
+.sql-issue { display: flex; align-items: flex-start; gap: .6rem; padding: .5rem .75rem; border-radius: var(--md-shape-sm); margin-bottom: .4rem; font-size: .82rem; }
+.sql-issue.high { background: #FFF3E0; border-left: 3px solid #E65100; }
+.sql-issue.medium { background: #FFF8E1; border-left: 3px solid #F9A825; }
+.sql-issue.low { background: #E8F5E9; border-left: 3px solid #2E7D32; }
+.sql-issue-sev { font-weight: 700; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; min-width: 50px; }
+.improvement-chip { display: inline-block; background: var(--md-primary-container); color: var(--md-primary-dark); padding: .2rem .75rem; border-radius: var(--md-shape-full); font-size: .78rem; font-weight: 600; margin-bottom: .75rem; }
+
+/* ============================================================
+   GITLAB PUSH BUTTON
+   ============================================================ */
+.btn-gitlab { background: #FC6D26; color: white; border: none; }
+.btn-gitlab:hover { background: #E24329; }

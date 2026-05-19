@@ -38,8 +38,26 @@ async function getModelList() {
   try {
     var r = await fetch('/api/models/list');
     var d = await r.json();
-    _acCache = (d.models || []).map(function(m) { return { name: m.name, kind: 'model', extra: m.materialized || '' }; })
-      .concat((d.sources || []).map(function(s) { return { name: s.name, kind: 'source', extra: s.source_name || '' }; }));
+    var items = [];
+    (d.models || []).forEach(function(m) {
+      items.push({ name: m.name, kind: 'model', extra: m.materialized || '' });
+    });
+    (d.sources || []).forEach(function(s) {
+      items.push({ name: s.name, kind: 'source', extra: s.source_name || '' });
+    });
+    // Unique dbt source names (e.g. "stripe", "salesforce")
+    var srcNamesSeen = {};
+    (d.sources || []).forEach(function(s) {
+      if (s.source_name && !srcNamesSeen[s.source_name]) {
+        srcNamesSeen[s.source_name] = true;
+        items.push({ name: s.source_name, kind: 'source_name', extra: '' });
+      }
+    });
+    // Source tables (table_name scoped to source_name)
+    (d.source_tables || []).forEach(function(t) {
+      items.push({ name: t.table_name, kind: 'source_table', extra: t.source_name || '' });
+    });
+    _acCache = items;
   } catch (_) { _acCache = []; }
   return _acCache;
 }
@@ -57,7 +75,9 @@ var DOCS_PAGES = [
   { id: 'feat-a1', section: 'Features', title: 'A1 — AI Doc Generator',
     body: '<p>Auto-generates schema.yml descriptions for any model and its columns.</p><h2>How to use</h2><ol><li>Upload manifest.json</li><li>Click <b>List undocumented</b> to see which models need attention</li><li>Type a model name (autocomplete will suggest options)</li><li>Click <b>Generate YAML</b> and paste into your schema.yml</li></ol>' },
   { id: 'feat-a2', section: 'Features', title: 'A2 — Model Scaffolding',
-    body: '<p>Generates a complete dbt model from a plain-English brief using your real project\'s refs.</p><h2>Example briefs</h2><ul><li><i>Daily revenue by country joining orders and customers, last 90 days</i></li><li><i>Monthly active users grouped by plan tier</i></li></ul>' },
+    body: '<p>Generates a complete dbt model (SQL + schema.yml) from a plain-English brief using your real project\'s refs.</p><h2>Quick brief examples</h2><ul><li><i>Daily revenue by country joining orders and customers, last 90 days</i></li><li><i>Monthly active users grouped by plan tier</i></li></ul><p>Click <b>Structured form</b> for a guided, field-by-field approach.</p>' },
+  { id: 'feat-a2-format', section: 'Features', title: 'A2 — Scaffold Format Guide',
+    body: '<h2>Writing a Good Brief</h2><p>The better your brief, the better the generated model. Follow this template for best results:</p><pre>SOURCES: orders, customers\nGRAIN: daily by country\nMETRICS: total_revenue, order_count, avg_order_value\nFILTERS: last 90 days, status != cancelled\nJOINS: orders LEFT JOIN customers ON customer_id</pre><h2>Structured Form Fields</h2><table><thead><tr><th>Field</th><th>What to write</th><th>Example</th></tr></thead><tbody><tr><td>Sources / refs</td><td>Comma-separated model names from your project</td><td>stg_orders, stg_customers</td></tr><tr><td>Grain</td><td>The row-level grain of the output</td><td>daily by country</td></tr><tr><td>Metrics</td><td>Comma-separated measures or aggregations</td><td>revenue, order_count, avg_aov</td></tr><tr><td>Filters</td><td>WHERE conditions in plain English</td><td>last 90 days, not cancelled</td></tr><tr><td>Joins</td><td>How sources relate</td><td>LEFT JOIN customers ON customer_id</td></tr></tbody></table><h2>Generated Output</h2><p>The AI returns a <code>.sql</code> file using <code>{{ ref(\'model_name\') }}</code> plus a <code>schema.yml</code> stub. Paste into your dbt project and run <code>dbt compile</code> to validate.</p><div class="callout">Tip: the more context you give (existing model names, column types, time ranges), the more accurate the output.</div>' },
   { id: 'feat-a3', section: 'Features', title: 'A3 — Staging Generator',
     body: '<p>Reads a RAW source table and generates a clean <code>stg_*</code> model: column renames, type casts, CTE pattern.</p><p>Provide columns as <code>name,type</code> CSV (one per line) or let the manifest load them automatically.</p>' },
   { id: 'feat-a4', section: 'Features', title: 'A4 — Incremental Advisor',
@@ -88,12 +108,12 @@ var DOCS_PAGES = [
 // LineageViewer  (vanilla class — not a Vue component)
 // =============================================================
 var LAYER_COLORS = {
-  source:       { bg: '#fef3c7', border: '#f59e0b' },
-  seed:         { bg: '#ede9fe', border: '#8b5cf6' },
-  staging:      { bg: '#e0f2fe', border: '#0ea5e9' },
-  intermediate: { bg: '#d1fae5', border: '#10b981' },
-  marts:        { bg: '#ffe4e6', border: '#f43f5e' },
-  other:        { bg: '#f1f5f9', border: '#94a3b8' },
+  source:       { bg: '#E8F5E9', border: '#2E7D32', font: '#1B5E20' },
+  seed:         { bg: '#F3E5F5', border: '#7B1FA2', font: '#4A148C' },
+  staging:      { bg: '#E3F2FD', border: '#1565C0', font: '#0D47A1' },
+  intermediate: { bg: '#FFF3E0', border: '#E65100', font: '#BF360C' },
+  marts:        { bg: '#FCE4EC', border: '#C62828', font: '#B71C1C' },
+  other:        { bg: '#F5F5F5', border: '#616161', font: '#212121' },
 };
 
 function lineageLayerFor(node) {
@@ -122,28 +142,45 @@ LineageViewer.prototype.load = function(g) {
     var layer = lineageLayerFor(n);
     var c = LAYER_COLORS[layer] || LAYER_COLORS.other;
     return {
-      id: n.id, label: n.name,
-      title: (n.kind || '') + ': ' + n.name + (n.description ? '\n' + n.description : ''),
-      color: { background: c.bg, border: c.border, highlight: { background: '#dbeafe', border: '#2563eb' } },
+      id: n.id,
+      label: n.name,
+      title: '<b>' + n.kind + '</b>: ' + n.name + (n.description ? '<br><i>' + n.description.slice(0, 120) + '</i>' : ''),
+      color: { background: c.bg, border: c.border, highlight: { background: '#BBDEFB', border: '#1565C0' } },
+      font: { color: c.font, size: 13, face: 'Roboto, Arial, sans-serif', bold: { size: 14 } },
       shape: n.kind === 'source' ? 'box' : 'ellipse',
+      widthConstraint: { maximum: 220 },
+      margin: 10,
+      borderWidth: 2,
       _raw: n,
     };
   }));
   var visEdges = new vis.DataSet(g.edges.map(function(e) {
     return { from: e.from, to: e.to, arrows: 'to',
-      color: { color: '#cbd5e1', highlight: '#2563eb' },
-      smooth: { type: 'cubicBezier', roundness: 0.3 } };
+      color: { color: '#B0BEC5', highlight: '#1565C0', opacity: 0.8 },
+      width: 1.5,
+      smooth: { type: 'cubicBezier', roundness: 0.4 } };
   }));
   this._nodes = visNodes;
   this.network = new vis.Network(this.netEl, { nodes: visNodes, edges: visEdges }, {
-    physics: { enabled: true, barnesHut: { gravitationalConstant: -8000, springLength: 120, damping: 0.5 },
-      stabilization: { iterations: 150 } },
-    interaction: { hover: true, tooltipDelay: 200, zoomView: true },
-    nodes: { borderWidth: 1.5 },
-    edges: { width: 1.2 },
+    physics: {
+      enabled: true,
+      barnesHut: {
+        gravitationalConstant: -15000,
+        centralGravity: 0.1,
+        springLength: 250,
+        springConstant: 0.04,
+        damping: 0.6,
+        avoidOverlap: 1,
+      },
+      stabilization: { iterations: 250, updateInterval: 50 },
+    },
+    layout: { improvedLayout: true },
+    interaction: { hover: true, tooltipDelay: 150, zoomView: true, navigationButtons: false },
+    nodes: { borderWidth: 2, shadow: { enabled: true, color: 'rgba(0,0,0,0.12)', size: 6, x: 1, y: 2 } },
+    edges: { width: 1.5, selectionWidth: 2.5 },
   });
   this.network.on('click', function(p) { if (p.nodes.length) self._showDetail(p.nodes[0]); });
-  this.network.once('stabilizationIterationsDone', function() { self.network.fit({ animation: true }); });
+  this.network.once('stabilizationIterationsDone', function() { self.network.fit({ animation: { duration: 600 } }); });
 };
 
 LineageViewer.prototype.search = function(q) {
@@ -193,7 +230,7 @@ var DataTableComp = {
     booleans:   { type: Array,  default: function() { return []; } },
     rowClickable: { type: Boolean, default: false },
   },
-  data: function() { return { q: '', filterCol: '', page: 0, sortKey: null, sortDir: 1, pageSize: 50 }; },
+  data: function() { return { q: '', filterCol: '', page: 0, sortKey: null, sortDir: 1, pageSize: 50, expanded: false }; },
   watch: {
     rows: function() { this.page = 0; this.q = ''; },
   },
@@ -260,11 +297,14 @@ var DataTableComp = {
           <option v-for="col in columns" :key="col.key" :value="col.key">{{ col.label }}</option>\
         </select>\
         <div style="margin-left:auto;display:flex;gap:.4rem">\
+          <button class="btn btn-secondary btn-sm" @click="expanded=!expanded" :title="expanded?\'Collapse table\':\'Expand table\'">\
+            {{ expanded ? \'⤢ Collapse\' : \'⤡ Expand\' }}\
+          </button>\
           <button class="btn btn-secondary btn-sm" @click="doExport">⬇ Excel</button>\
           <button class="btn btn-secondary btn-sm no-print" onclick="window.print()">\u{1f5a8} PDF</button>\
         </div>\
       </div>\
-      <div class="scroll-table-container">\
+      <div class="scroll-table-container" :class="{expanded: expanded}">\
         <table>\
           <thead>\
             <tr>\
@@ -302,10 +342,11 @@ var DataTableComp = {
 var AutoInputComp = {
   name: 'AutoInput',
   props: {
-    modelValue:  { type: String, default: '' },
-    kind:        String,
-    placeholder: { type: String, default: '' },
-    inputId:     String,
+    modelValue:   { type: String, default: '' },
+    kind:         String,
+    placeholder:  { type: String, default: '' },
+    inputId:      String,
+    sourceFilter: { type: String, default: '' },
   },
   emits: ['update:modelValue'],
   data: function() { return { suggestions: [], highlighted: -1 }; },
@@ -317,8 +358,9 @@ var AutoInputComp = {
       var all = await getModelList();
       var q = val.toLowerCase();
       this.suggestions = all.filter(function(m) {
-        return (!self.kind || m.kind === self.kind) &&
-          (m.name.toLowerCase().includes(q) || (m.extra || '').toLowerCase().includes(q));
+        if (self.kind && m.kind !== self.kind) return false;
+        if (self.kind === 'source_table' && self.sourceFilter && m.extra.toLowerCase() !== self.sourceFilter.toLowerCase()) return false;
+        return m.name.toLowerCase().includes(q) || (m.extra || '').toLowerCase().includes(q);
       }).slice(0, 20);
       this.highlighted = -1;
     },
@@ -335,18 +377,22 @@ var AutoInputComp = {
       else if (e.key === 'Escape') { this.suggestions = []; }
     },
     onBlur: function() { var self = this; setTimeout(function() { self.suggestions = []; }, 150); },
+    kindLabel: function(kind) {
+      var labels = { model: 'M', source: 'S', source_name: 'SRC', source_table: 'TBL' };
+      return labels[kind] || kind;
+    },
   },
   template: '\
     <div class="autocomplete-wrap">\
       <input :id="inputId" :value="modelValue" :placeholder="placeholder"\
         @input="onInput($event.target.value)" @keydown="onKeydown" @blur="onBlur" />\
       <div v-if="suggestions.length" class="autocomplete-dropdown">\
-        <div v-for="(item,i) in suggestions" :key="item.name"\
+        <div v-for="(item,i) in suggestions" :key="item.name+\'|\'+item.kind"\
           class="autocomplete-item" :class="{focused:i===highlighted}"\
           @mousedown.prevent="pick(item)">\
-          <span class="ac-kind" :class="item.kind">{{ item.kind }}</span>\
+          <span class="ac-kind" :class="item.kind">{{ kindLabel(item.kind) }}</span>\
           <span>{{ item.name }}</span>\
-          <span v-if="item.extra" style="color:#94a3b8;font-size:.72rem;margin-left:auto">{{ item.extra }}</span>\
+          <span v-if="item.extra" style="color:var(--md-on-surface-variant);font-size:.72rem;margin-left:auto">{{ item.extra }}</span>\
         </div>\
       </div>\
     </div>\
@@ -485,6 +531,27 @@ createApp({
       docsSearch: '',
       docsCurrent: 'gs-overview',
 
+      // SQL Optimizer
+      sqlInput: '',
+      sqlVendor: 'snowflake',
+      sqlResult: null,
+      sqlLoading: false,
+
+      // GitLab
+      gitlabBaseUrl: 'https://gitlab.com',
+      gitlabToken: '',
+      gitlabProject: '',
+      gitlabBranch: 'main',
+      gitlabBranches: [],
+      gitlabPushing: false,
+
+      // Scaffold structured mode
+      scafMode: 'brief',
+      scafSources: '',
+      scafGrain: '',
+      scafMetrics: '',
+      scafFilters: '',
+
       // Column definitions for DataTable components
       healthWorstCols: [
         { key: 'name', label: 'Model' }, { key: 'score', label: 'Score' },
@@ -529,6 +596,7 @@ createApp({
         anomaly: 'Anomaly Detection', lineage: 'Lineage Graph',
         collineage: 'Column Lineage', teams: 'Microsoft Teams',
         bigquery: 'BigQuery', settings: 'Settings', apidocs: 'Documentation',
+        sqlopt: 'SQL Optimizer',
       };
       return map[this.panel] || 'AIinDbt';
     },
@@ -590,6 +658,9 @@ createApp({
         if (s.dbt_cloud_account_id)  this.dbtCloudAccountId   = s.dbt_cloud_account_id;
         if (s.dbt_cloud_project_id)  this.dbtCloudProjectId   = s.dbt_cloud_project_id;
         if (s.bigquery_project_id)   this.bqProjectId         = s.bigquery_project_id;
+        if (s.gitlab_base_url)       this.gitlabBaseUrl       = s.gitlab_base_url;
+        if (s.gitlab_project)        this.gitlabProject       = s.gitlab_project;
+        if (s.gitlab_branch)         this.gitlabBranch        = s.gitlab_branch;
         this.teamsWebhookUrl = window.location.origin + '/api/teams/events';
       } catch (_) {}
       getModelList();
@@ -610,6 +681,10 @@ createApp({
             dbt_cloud_token:       this.dbtCloudToken   || undefined,
             teams_outgoing_secret: this.teamsSecret     || undefined,
             teams_incoming_webhook: this.teamsWebhook   || undefined,
+            gitlab_base_url:       this.gitlabBaseUrl   || undefined,
+            gitlab_token:          this.gitlabToken     || undefined,
+            gitlab_project:        this.gitlabProject   || undefined,
+            gitlab_branch:         this.gitlabBranch    || undefined,
           }),
         });
         // Upload manifest/catalog files if selected
@@ -734,7 +809,18 @@ createApp({
     },
 
     bookmarkMsg: function(msg) {
-      this.chatBookmarks.unshift({ id: Date.now(), text: msg.text || msg.html, ts: new Date().toISOString() });
+      var question = '';
+      var idx = this.chatMessages.findIndex(function(m) { return m.id === msg.id; });
+      for (var i = idx - 1; i >= 0; i--) {
+        if (this.chatMessages[i].role === 'user') { question = this.chatMessages[i].text; break; }
+      }
+      this.chatBookmarks.unshift({
+        id: Date.now(),
+        question: question,
+        answer: msg.text || '',
+        ts: new Date().toISOString(),
+        expanded: false,
+      });
       localStorage.setItem('aiindbt_bookmarks', JSON.stringify(this.chatBookmarks));
       this.toast('Bookmarked', 'success');
     },
@@ -742,6 +828,12 @@ createApp({
     deleteBookmark: function(id) {
       this.chatBookmarks = this.chatBookmarks.filter(function(b) { return b.id !== id; });
       localStorage.setItem('aiindbt_bookmarks', JSON.stringify(this.chatBookmarks));
+    },
+
+    copyBookmark: async function(b) {
+      var txt = (b.question ? 'Q: ' + b.question + '\n\nA: ' : '') + (b.answer || '');
+      await navigator.clipboard.writeText(txt);
+      this.toast('Copied', 'success');
     },
 
     // ---- NL2SQL (B2) -------------------------------------------------
@@ -959,6 +1051,62 @@ createApp({
         };
       } catch (e) { this.toast(e.message, 'error'); }
       finally { this.bqLoading = false; }
+    },
+
+    // ---- SQL Optimizer ----------------------------------------------
+    optimizeSQL: async function() {
+      if (!this.sqlInput.trim()) return;
+      this.sqlLoading = true; this.sqlResult = null;
+      try {
+        this.sqlResult = await apiCall('/api/sql/optimize', {
+          method: 'POST',
+          body: JSON.stringify({ sql: this.sqlInput, vendor: this.sqlVendor }),
+        });
+      } catch (e) { this.toast(e.message, 'error'); }
+      finally { this.sqlLoading = false; }
+    },
+
+    copySqlOptimized: async function() {
+      if (this.sqlResult && this.sqlResult.optimized_sql) {
+        await navigator.clipboard.writeText(this.sqlResult.optimized_sql);
+        this.toast('Copied', 'success');
+      }
+    },
+
+    // ---- GitLab -----------------------------------------------------
+    loadGitlabBranches: async function() {
+      if (!this.gitlabProject.trim()) { this.toast('Set GitLab project in Settings first', 'error'); return; }
+      try {
+        this.gitlabBranches = await apiCall('/api/gitlab/branches');
+        if (!this.gitlabBranches.length) this.toast('No branches found', 'info');
+      } catch (e) { this.toast('GitLab: ' + e.message, 'error'); }
+    },
+
+    gitlabPush: async function(content, filePath) {
+      if (!content || !filePath) { this.toast('Nothing to push', 'error'); return; }
+      this.gitlabPushing = true;
+      try {
+        var r = await apiCall('/api/gitlab/push', {
+          method: 'POST',
+          body: JSON.stringify({
+            file_path: filePath,
+            content: content,
+            branch: this.gitlabBranch || 'main',
+          }),
+        });
+        this.toast('Pushed to GitLab: ' + r.file_path + ' on ' + r.branch, 'success');
+      } catch (e) { this.toast('GitLab push failed: ' + e.message, 'error'); }
+      finally { this.gitlabPushing = false; }
+    },
+
+    // ---- Scaffold structured brief ----------------------------------
+    buildStructuredBrief: function() {
+      var parts = [];
+      if (this.scafSources.trim()) parts.push('SOURCES: ' + this.scafSources.trim());
+      if (this.scafGrain.trim())   parts.push('GRAIN: ' + this.scafGrain.trim());
+      if (this.scafMetrics.trim()) parts.push('METRICS: ' + this.scafMetrics.trim());
+      if (this.scafFilters.trim()) parts.push('FILTERS: ' + this.scafFilters.trim());
+      this.scafBrief = parts.join('\n');
     },
 
     // ---- fill (example chips) ----------------------------------------
