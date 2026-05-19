@@ -38,6 +38,9 @@ class Settings:
     gitlab_project: str = ""   # e.g. "myorg/my-dbt-repo"
     gitlab_branch: str = "main"
 
+    # SQL dialect default
+    sql_dialect: str = "snowflake"
+
 
 SETTINGS = Settings()
 

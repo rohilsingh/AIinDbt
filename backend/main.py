@@ -56,6 +56,7 @@ class SettingsIn(BaseModel):
     gitlab_token: str | None = None
     gitlab_project: str | None = None
     gitlab_branch: str | None = None
+    sql_dialect: str | None = None
 
 
 @app.get("/api/settings")
@@ -76,6 +77,7 @@ def get_settings() -> dict:
         "gitlab_token_set": bool(SETTINGS.gitlab_token),
         "gitlab_project": SETTINGS.gitlab_project,
         "gitlab_branch": SETTINGS.gitlab_branch,
+        "sql_dialect": SETTINGS.sql_dialect,
         "configured": configured(),
         "manifest_models": len(dbt_client.models()),
     }
@@ -390,6 +392,109 @@ def sql_optimize(p: SqlOptimizeIn) -> dict:
         return json.loads(m.group())
     except json.JSONDecodeError:
         return {"issues": [], "optimized_sql": p.sql, "changes": [], "improvement_estimate": "N/A", "raw": raw}
+
+
+# ---- model SQL + columns endpoints ----------------------------------------
+
+@app.get("/api/models/{name}/sql")
+def model_sql(name: str) -> dict:
+    nodes = SETTINGS.manifest.get("nodes", {})
+    for key, node in nodes.items():
+        if node.get("name") == name and node.get("resource_type") == "model":
+            raw_sql = node.get("raw_sql") or node.get("raw_code") or ""
+            return {"name": name, "raw_sql": raw_sql}
+    raise HTTPException(404, f"Model '{name}' not found in manifest")
+
+
+@app.get("/api/models/{name}/columns")
+def model_columns(name: str) -> dict:
+    nodes = SETTINGS.manifest.get("nodes", {})
+    for key, node in nodes.items():
+        if node.get("name") == name and node.get("resource_type") == "model":
+            cols = list((node.get("columns") or {}).keys())
+            return {"name": name, "columns": cols}
+    # Also check catalog
+    cat_nodes = SETTINGS.catalog.get("nodes", {}) if SETTINGS.catalog else {}
+    for key, node in cat_nodes.items():
+        n = (key.split(".")[-1] if "." in key else key)
+        if n == name:
+            cols = list((node.get("columns") or {}).keys())
+            return {"name": name, "columns": cols}
+    raise HTTPException(404, f"Model '{name}' not found")
+
+
+# ---- Model Splitter --------------------------------------------------------
+
+class SplitterIn(BaseModel):
+    sql: str
+    model_name: str = "my_model"
+
+
+@app.post("/api/splitter")
+def splitter_endpoint(p: SplitterIn) -> dict:
+    import re
+    from . import llm as _llm
+    prompt = (
+        "You are a dbt SQL architect. Analyze the following SQL model and determine if it should be "
+        "split into multiple smaller sub-models for maintainability and performance.\n"
+        "Respond ONLY with valid JSON matching exactly:\n"
+        '{"should_split": true|false, "reasoning": "...", '
+        '"sub_models": [{"name": "sub_model_name", "sql": "SELECT...", "yaml": "models:\\n  - name: ...", "depends_on": ["other_sub_model"]}]}\n'
+        "If should_split is false, sub_models should be an empty array.\n\n"
+        f"Model name: {p.model_name}\nSQL:\n```sql\n{p.sql}\n```"
+    )
+    raw = _llm.chat(prompt)
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if not m:
+        return {"should_split": False, "reasoning": "Could not parse response", "sub_models": [], "raw": raw}
+    try:
+        return json.loads(m.group())
+    except json.JSONDecodeError:
+        return {"should_split": False, "reasoning": "Could not parse response", "sub_models": [], "raw": raw}
+
+
+# ---- Dialect Converter -----------------------------------------------------
+
+class ConverterIn(BaseModel):
+    sql: str
+    source_dialect: str = "snowflake"
+    target_dialect: str = "bigquery"
+    model_name: str = ""
+
+
+@app.post("/api/converter")
+def converter_endpoint(p: ConverterIn) -> dict:
+    import re
+    warnings_out = []
+    converted_sql = p.sql
+    try:
+        import sqlglot
+        result = sqlglot.transpile(p.sql, read=p.source_dialect, write=p.target_dialect, pretty=True)
+        converted_sql = "\n".join(result) if result else p.sql
+    except ImportError:
+        warnings_out.append("sqlglot not installed — falling back to LLM")
+    except Exception as e:
+        warnings_out.append(f"sqlglot error: {e} — falling back to LLM for complex parts")
+
+    if warnings_out or converted_sql == p.sql:
+        from . import llm as _llm
+        prompt = (
+            f"Convert the following SQL from {p.source_dialect} dialect to {p.target_dialect} dialect. "
+            "Maintain all logic and CTE structure. Return ONLY a JSON object:\n"
+            '{"converted_sql": "...", "warnings": ["..."]}\n\n'
+            f"SQL:\n```sql\n{p.sql}\n```"
+        )
+        raw = _llm.chat(prompt)
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            try:
+                result = json.loads(m.group())
+                converted_sql = result.get("converted_sql", converted_sql)
+                warnings_out.extend(result.get("warnings", []))
+            except json.JSONDecodeError:
+                pass
+
+    return {"converted_sql": converted_sql, "warnings": warnings_out, "model_name": p.model_name}
 
 
 # ---- GitLab ----------------------------------------------------------------
