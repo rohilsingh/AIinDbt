@@ -90,7 +90,7 @@ code { font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
 /* ============================================================
    PANELS
    ============================================================ */
-.panel { display: none; max-width: 960px; animation: fadeIn .15s ease; }
+.panel { display: block; max-width: 960px; animation: fadeIn .15s ease; }
 .panel.active { display: block; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
@@ -457,7 +457,6 @@ pre {
   .btn-group, .examples-bar, .no-print { display: none !important; }
   #main-content { margin-left: 0; }
   .panel { display: block !important; }
-  .panel:not(.active) { display: none !important; }
   body { background: white; }
   .card, .data-table-wrap { box-shadow: none; border: 1px solid #ccc; }
   table { page-break-inside: avoid; }
