@@ -726,7 +726,7 @@ pre {
   border-radius: var(--md-shape-xs);
   font-size: .82rem;
 }
-#lineage-net { height: 600px; }
+#lineage-net { height: 600px; position: relative; overflow: hidden; }
 .lineage-legend {
   display: flex;
   flex-wrap: wrap;

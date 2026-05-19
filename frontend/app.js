@@ -126,8 +126,16 @@ var DOCS_PAGES = [
 ];
 
 // =============================================================
-// LineageViewer  (vanilla class — not a Vue component)
+// SvgLineage  — pure-SVG DAG renderer, replaces vis-network
 // =============================================================
+var SVG_NS = 'http://www.w3.org/2000/svg';
+function _svgEl(tag, attrs, text) {
+  var el = document.createElementNS(SVG_NS, tag);
+  if (attrs) Object.keys(attrs).forEach(function(k) { el.setAttribute(k, attrs[k]); });
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
 var LAYER_COLORS = {
   source:       { bg: '#E8F5E9', border: '#2E7D32', font: '#1B5E20' },
   seed:         { bg: '#F3E5F5', border: '#7B1FA2', font: '#4A148C' },
@@ -148,120 +156,337 @@ function lineageLayerFor(node) {
 }
 
 function LineageViewer(netId, onClickNode) {
-  this.netEl    = document.getElementById(netId);
-  this.network  = null;
-  this._nodes   = null;
-  this._edges   = null;
-  this._rawNodes = [];
-  this._onClickNode = onClickNode || function() {};
-  this._isolated = false;
-  this._lastSearch = '';
+  this.container   = document.getElementById(netId);
+  this.onSelect    = onClickNode || function() {};
+  this._allNodes   = [];
+  this._allEdges   = [];
+  this._byId       = {};
+  this._hiddenIds  = {};
+  this._selId      = null;
+  this._searchQ    = '';
+  this._isolated   = false;
+  this._vx = 0; this._vy = 0; this._vscale = 1;
+  this._dragging   = false;
+  this._svg        = null;
+  this._g          = null;
+  this._edgeG      = null;
+  this._nodeG      = null;
 }
 
 LineageViewer.prototype.load = function(g) {
-  if (!this.netEl || !window.vis) return;
   var self = this;
-  this._rawNodes = g.nodes || [];
-  var visNodes = new vis.DataSet(g.nodes.map(function(n) {
-    var layer = lineageLayerFor(n);
-    var c = LAYER_COLORS[layer] || LAYER_COLORS.other;
-    return {
-      id: n.id,
-      label: n.name,
-      title: '<b>' + n.kind + '</b>: ' + n.name + (n.description ? '<br><i>' + n.description.slice(0, 120) + '</i>' : ''),
-      color: { background: c.bg, border: c.border, highlight: { background: '#BBDEFB', border: '#1565C0' } },
-      font: { color: c.font, size: 13, face: 'Roboto, Arial, sans-serif', bold: { size: 14 } },
-      shape: n.kind === 'source' ? 'box' : 'ellipse',
-      widthConstraint: { maximum: 200 },
-      margin: 10,
-      borderWidth: 2,
-      _raw: n,
-    };
-  }));
-  var visEdges = new vis.DataSet(g.edges.map(function(e) {
-    return { from: e.from, to: e.to, arrows: 'to',
-      color: { color: '#B0BEC5', highlight: '#1565C0', opacity: 0.8 },
-      width: 1.5,
-      smooth: { type: 'cubicBezier', roundness: 0.3 } };
-  }));
-  this._nodes = visNodes;
-  this._edges = visEdges;
-  this.network = new vis.Network(this.netEl, { nodes: visNodes, edges: visEdges }, {
-    physics: { enabled: false },
-    layout: {
-      hierarchical: {
-        enabled: true,
-        direction: 'LR',
-        sortMethod: 'directed',
-        levelSeparation: 230,
-        nodeSpacing: 140,
-        treeSpacing: 200,
-        blockShifting: true,
-        edgeMinimization: true,
-        parentCentralization: true,
-      },
-    },
-    interaction: { hover: true, tooltipDelay: 150, zoomView: true, navigationButtons: false },
-    nodes: { borderWidth: 2, shadow: { enabled: true, color: 'rgba(0,0,0,0.1)', size: 5, x: 1, y: 2 } },
-    edges: { width: 1.5, selectionWidth: 2.5 },
+  var rawNodes = g.nodes || [], rawEdges = g.edges || [];
+
+  /* ---- 1. build adjacency ---- */
+  var children = {}, parents = {}, indeg = {};
+  rawNodes.forEach(function(n) { children[n.id] = []; parents[n.id] = []; indeg[n.id] = 0; });
+  rawEdges.forEach(function(e) {
+    if (children[e.from]) children[e.from].push(e.to);
+    if (parents[e.to])   parents[e.to].push(e.from);
+    if (indeg[e.to] !== undefined) indeg[e.to]++;
   });
-  this.network.on('click', function(p) {
-    if (p.nodes.length) {
-      self._showDetail(p.nodes[0]);
-      // Smooth center animation
-      self.network.focus(p.nodes[0], { scale: self.network.getScale(), animation: { duration: 400, easingFunction: 'easeInOutCubic' } });
+
+  /* ---- 2. level = longest path from any source (Kahn BFS) ---- */
+  var levels = {};
+  var queue = rawNodes.filter(function(n) { return indeg[n.id] === 0; })
+                      .map(function(n) { levels[n.id] = 0; return n.id; });
+  var qi = 0;
+  while (qi < queue.length) {
+    var cur = queue[qi++];
+    children[cur].forEach(function(child) {
+      levels[child] = Math.max(levels[child] === undefined ? 0 : levels[child], levels[cur] + 1);
+      indeg[child]--;
+      if (indeg[child] <= 0) queue.push(child);
+    });
+  }
+  rawNodes.forEach(function(n) { if (levels[n.id] === undefined) levels[n.id] = 0; });
+
+  /* ---- 3. group by level, sort within level ---- */
+  var byLevel = {};
+  rawNodes.forEach(function(n) {
+    var lv = levels[n.id] || 0;
+    if (!byLevel[lv]) byLevel[lv] = [];
+    byLevel[lv].push(n);
+  });
+  Object.keys(byLevel).forEach(function(lv) {
+    byLevel[lv].sort(function(a, b) {
+      var pa = (parents[a.id] || []).map(function(pid) { return levels[pid] || 0; });
+      var pb = (parents[b.id] || []).map(function(pid) { return levels[pid] || 0; });
+      var avgA = pa.length ? pa.reduce(function(s, v) { return s + v; }, 0) / pa.length : 0;
+      var avgB = pb.length ? pb.reduce(function(s, v) { return s + v; }, 0) / pb.length : 0;
+      if (avgA !== avgB) return avgA - avgB;
+      return a.name.localeCompare(b.name);
+    });
+  });
+
+  /* ---- 4. assign pixel positions ---- */
+  var NW = 172, NH = 40, HGAP = 70, VGAP = 16;
+  var positioned = [];
+  self._byId = {};
+  var sortedLevels = Object.keys(byLevel).sort(function(a, b) { return +a - +b; });
+  sortedLevels.forEach(function(lv, lvIdx) {
+    byLevel[lv].forEach(function(n, row) {
+      var pn = {
+        id: n.id, name: n.name, kind: n.kind || 'model',
+        schema: n.schema || '', description: n.description || '',
+        materialized: n.materialized || ((n.config || {}).materialized) || '',
+        layer: lineageLayerFor(n), level: +lv,
+        x: lvIdx * (NW + HGAP) + 20,
+        y: row  * (NH + VGAP) + 20,
+        w: NW, h: NH, raw: n,
+      };
+      positioned.push(pn);
+      self._byId[n.id] = pn;
+    });
+  });
+  this._allNodes = positioned;
+  this._allEdges = rawEdges;
+  this._hiddenIds = {};
+  this._selId = null;
+
+  /* ---- 5. compute canvas size + initial fit ---- */
+  var maxX = 0, maxY = 0;
+  positioned.forEach(function(n) { maxX = Math.max(maxX, n.x + n.w); maxY = Math.max(maxY, n.y + n.h); });
+
+  if (!this.container) return;
+  var cw = this.container.clientWidth  || 900;
+  var ch = this.container.clientHeight || 580;
+  var scaleX = (cw - 40) / (maxX + 20 || 1);
+  var scaleY = (ch - 40) / (maxY + 20 || 1);
+  this._vscale = Math.min(1.2, Math.min(scaleX, scaleY));
+  this._vx = 20; this._vy = 20;
+
+  this._createSvg();
+  this._render();
+  this._bindEvents();
+};
+
+LineageViewer.prototype._createSvg = function() {
+  if (!this.container) return;
+  this.container.innerHTML = '';
+  var svg = _svgEl('svg', { width: '100%', height: '100%', style: 'display:block;cursor:grab;user-select:none;background:#FAFBFD' });
+  this._svg = svg;
+
+  /* arrowhead marker */
+  var defs = _svgEl('defs');
+  var marker = _svgEl('marker', { id: 'arr', markerWidth: '8', markerHeight: '8', refX: '7', refY: '3.5', orient: 'auto' });
+  marker.appendChild(_svgEl('path', { d: 'M0,0 L0,7 L8,3.5 z', fill: '#90A4AE' }));
+  var markerSel = _svgEl('marker', { id: 'arrSel', markerWidth: '8', markerHeight: '8', refX: '7', refY: '3.5', orient: 'auto' });
+  markerSel.appendChild(_svgEl('path', { d: 'M0,0 L0,7 L8,3.5 z', fill: '#1565C0' }));
+  defs.appendChild(marker); defs.appendChild(markerSel);
+  svg.appendChild(defs);
+
+  var g = _svgEl('g');
+  this._g = g;
+  this._edgeG = _svgEl('g');
+  this._nodeG = _svgEl('g');
+  g.appendChild(this._edgeG);
+  g.appendChild(this._nodeG);
+  svg.appendChild(g);
+  this.container.appendChild(svg);
+};
+
+LineageViewer.prototype._applyTransform = function() {
+  if (this._g) this._g.setAttribute('transform',
+    'translate(' + this._vx + ',' + this._vy + ') scale(' + this._vscale + ')');
+};
+
+LineageViewer.prototype._render = function() {
+  var self = this;
+  if (!this._edgeG || !this._nodeG) return;
+  while (this._edgeG.firstChild) this._edgeG.removeChild(this._edgeG.firstChild);
+  while (this._nodeG.firstChild)  this._nodeG.removeChild(this._nodeG.firstChild);
+
+  /* edges */
+  this._allEdges.forEach(function(e) {
+    var f = self._byId[e.from], t = self._byId[e.to];
+    if (!f || !t || self._hiddenIds[e.from] || self._hiddenIds[e.to]) return;
+    var x1 = f.x + f.w, y1 = f.y + f.h / 2;
+    var x2 = t.x,        y2 = t.y + t.h / 2;
+    var cx = (x1 + x2) / 2;
+    var isSel = (self._selId === e.from || self._selId === e.to);
+    var dimmed = self._searchQ && !isSel &&
+      !f.name.toLowerCase().includes(self._searchQ) && !t.name.toLowerCase().includes(self._searchQ);
+    self._edgeG.appendChild(_svgEl('path', {
+      d: 'M' + x1 + ' ' + y1 + ' C' + cx + ' ' + y1 + ' ' + cx + ' ' + y2 + ' ' + x2 + ' ' + y2,
+      fill: 'none',
+      stroke: isSel ? '#1565C0' : '#B0BEC5',
+      'stroke-width': isSel ? '2' : '1.5',
+      opacity: dimmed ? '0.15' : (isSel ? '1' : '0.75'),
+      'marker-end': isSel ? 'url(#arrSel)' : 'url(#arr)',
+    }));
+  });
+
+  /* nodes */
+  this._allNodes.forEach(function(n) {
+    if (self._hiddenIds[n.id]) return;
+    var c = LAYER_COLORS[n.layer] || LAYER_COLORS.other;
+    var isSel = n.id === self._selId;
+    var isMatch = self._searchQ && n.name.toLowerCase().includes(self._searchQ);
+    var dimmed  = self._searchQ && !isMatch && !isSel;
+
+    var grp = _svgEl('g', {
+      transform: 'translate(' + n.x + ',' + n.y + ')',
+      opacity: dimmed ? '0.18' : '1',
+      style: 'cursor:pointer',
+    });
+
+    /* shadow rect */
+    grp.appendChild(_svgEl('rect', {
+      x: '2', y: '3', width: String(n.w), height: String(n.h),
+      rx: '8', fill: 'rgba(0,0,0,0.08)',
+    }));
+    /* main rect */
+    grp.appendChild(_svgEl('rect', {
+      x: '0', y: '0', width: String(n.w), height: String(n.h),
+      rx: '8',
+      fill: isSel ? '#BBDEFB' : (isMatch ? '#FFF9C4' : c.bg),
+      stroke: isSel ? '#1565C0' : c.border,
+      'stroke-width': isSel ? '2.5' : '1.5',
+    }));
+    /* left accent bar */
+    grp.appendChild(_svgEl('rect', {
+      x: '0', y: '0', width: '4', height: String(n.h),
+      rx: '4', fill: c.border,
+    }));
+    /* label */
+    var label = n.name.length > 24 ? n.name.slice(0, 22) + '…' : n.name;
+    grp.appendChild(_svgEl('text', {
+      x: '14', y: String(n.h / 2 + 5),
+      'font-size': '12.5', 'font-family': 'Roboto,Arial,sans-serif',
+      'font-weight': isSel ? '700' : '500',
+      fill: c.font, 'pointer-events': 'none',
+    }, label));
+    /* kind pill (non-model) */
+    if (n.kind !== 'model') {
+      var kLabel = n.kind.slice(0, 6);
+      var kw = kLabel.length * 6 + 8;
+      grp.appendChild(_svgEl('rect', { x: String(n.w - kw - 4), y: '5', width: String(kw), height: '14', rx: '7', fill: c.border, opacity: '0.25' }));
+      grp.appendChild(_svgEl('text', {
+        x: String(n.w - kw / 2 - 4), y: '15',
+        'font-size': '8', 'text-anchor': 'middle', fill: c.font, opacity: '0.8',
+        'font-family': 'Roboto,Arial,sans-serif', 'pointer-events': 'none',
+      }, kLabel));
     }
+
+    grp.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      self._selId = (self._selId === n.id) ? null : n.id;
+      self.onSelect(self._selId ? (n.raw || n) : null);
+      if (self._selId) self._centerOn(n);
+      self._render();
+    });
+
+    /* hover highlight */
+    grp.addEventListener('mouseenter', function() {
+      grp.querySelector('rect:nth-child(2)') &&
+        grp.querySelector('rect:nth-child(2)').setAttribute('filter', 'drop-shadow(0 2px 6px rgba(0,0,0,0.22))');
+    });
+    grp.addEventListener('mouseleave', function() {
+      grp.querySelector('rect:nth-child(2)') &&
+        grp.querySelector('rect:nth-child(2)').removeAttribute('filter');
+    });
+
+    self._nodeG.appendChild(grp);
   });
-  this.network.once('afterDrawing', function() { self.network.fit({ animation: { duration: 700 } }); });
+
+  /* click background to deselect */
+  this._svg && this._svg.onclick || (this._svg && this._svg.addEventListener('click', function() {
+    if (self._selId) { self._selId = null; self.onSelect(null); self._render(); }
+  }));
+
+  this._applyTransform();
+};
+
+LineageViewer.prototype._centerOn = function(n) {
+  var cw = (this.container && this.container.clientWidth)  || 900;
+  var ch = (this.container && this.container.clientHeight) || 580;
+  this._vx = cw / 2 - (n.x + n.w / 2) * this._vscale;
+  this._vy = ch / 2 - (n.y + n.h / 2) * this._vscale;
+  this._applyTransform();
 };
 
 LineageViewer.prototype.search = function(q) {
-  var self = this;
-  this._lastSearch = q;
-  if (!this._nodes) return;
-  if (!q.trim()) {
-    this._nodes.forEach(function(n) { self._nodes.update({ id: n.id, opacity: 1, hidden: false }); });
-    return;
-  }
-  var lower = q.toLowerCase(), matches = new Set();
-  this._rawNodes.forEach(function(n) { if (n.name.toLowerCase().includes(lower)) matches.add(n.id); });
-
-  if (this._isolated) {
-    // Find connected node IDs
-    var connected = new Set(matches);
-    if (this._edges) {
-      this._edges.forEach(function(e) {
-        if (matches.has(e.from)) connected.add(e.to);
-        if (matches.has(e.to)) connected.add(e.from);
-      });
-    }
-    this._nodes.forEach(function(n) {
-      self._nodes.update({ id: n.id, opacity: connected.has(n.id) ? 1 : 0.05, hidden: !connected.has(n.id) });
+  this._searchQ = q ? q.toLowerCase() : '';
+  this._hiddenIds = {};
+  if (this._isolated && this._searchQ) {
+    var matchIds = {}, self = this;
+    this._allNodes.forEach(function(n) { if (n.name.toLowerCase().includes(self._searchQ)) matchIds[n.id] = true; });
+    var connected = Object.assign({}, matchIds);
+    this._allEdges.forEach(function(e) {
+      if (matchIds[e.from]) connected[e.to] = true;
+      if (matchIds[e.to])   connected[e.from] = true;
     });
-  } else {
-    this._nodes.forEach(function(n) { self._nodes.update({ id: n.id, opacity: matches.has(n.id) ? 1 : 0.15, hidden: false }); });
+    this._allNodes.forEach(function(n) { if (!connected[n.id]) self._hiddenIds[n.id] = true; });
   }
-
-  if (matches.size >= 1) {
-    this.network.focus(Array.from(matches)[0], { scale: 1.4, animation: { duration: 500, easingFunction: 'easeInOutCubic' } });
+  if (this._searchQ) {
+    var first = null;
+    for (var i = 0; i < this._allNodes.length; i++) {
+      if (this._allNodes[i].name.toLowerCase().includes(this._searchQ)) { first = this._allNodes[i]; break; }
+    }
+    if (first) this._centerOn(first);
   }
+  this._render();
 };
 
 LineageViewer.prototype.toggleIsolate = function() {
   this._isolated = !this._isolated;
-  this.search(this._lastSearch);
+  this.search(this._searchQ);
   return this._isolated;
 };
 
-LineageViewer.prototype.fitView  = function() { this.network && this.network.fit({ animation: { duration: 500 } }); };
-LineageViewer.prototype.zoomIn   = function() { this.network && this.network.moveTo({ scale: (this.network.getScale() || 1) * 1.3 }); };
-LineageViewer.prototype.zoomOut  = function() { this.network && this.network.moveTo({ scale: (this.network.getScale() || 1) * 0.77 }); };
-LineageViewer.prototype.setPhysics = function(on) { this.network && this.network.setOptions({ physics: { enabled: on } }); };
+LineageViewer.prototype.fitView = function() {
+  var self = this;
+  var visible = this._allNodes.filter(function(n) { return !self._hiddenIds[n.id]; });
+  if (!visible.length || !this.container) return;
+  var minX = visible[0].x, minY = visible[0].y, maxX = 0, maxY = 0;
+  visible.forEach(function(n) {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.w); maxY = Math.max(maxY, n.y + n.h);
+  });
+  var cw = this.container.clientWidth || 900, ch = this.container.clientHeight || 580;
+  this._vscale = Math.min(1.5, Math.min((cw - 40) / (maxX - minX + 20), (ch - 40) / (maxY - minY + 20)));
+  this._vx = 20 - minX * this._vscale;
+  this._vy = 20 - minY * this._vscale;
+  this._applyTransform();
+};
 
-LineageViewer.prototype._showDetail = function(id) {
-  var node = this._rawNodes.find(function(n) { return n.id === id; });
-  if (!node) return;
-  this._onClickNode(node);
+LineageViewer.prototype.zoomIn  = function() { this._vscale = Math.min(4, this._vscale * 1.25); this._applyTransform(); };
+LineageViewer.prototype.zoomOut = function() { this._vscale = Math.max(0.1, this._vscale * 0.8); this._applyTransform(); };
+LineageViewer.prototype.setPhysics = function() {}; /* no-op — physics replaced by topo layout */
+
+LineageViewer.prototype._bindEvents = function() {
+  var self = this, el = this._svg;
+  if (!el) return;
+  var sx, sy, svx, svy;
+
+  el.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    self._dragging = true;
+    sx = e.clientX; sy = e.clientY; svx = self._vx; svy = self._vy;
+    el.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', function(e) {
+    if (!self._dragging) return;
+    self._vx = svx + (e.clientX - sx); self._vy = svy + (e.clientY - sy);
+    self._applyTransform();
+  });
+  window.addEventListener('mouseup', function() {
+    self._dragging = false;
+    if (self._svg) self._svg.style.cursor = 'grab';
+  });
+  el.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var rect = el.getBoundingClientRect();
+    var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    var factor = e.deltaY > 0 ? 0.85 : 1.18;
+    var ns = Math.max(0.08, Math.min(5, self._vscale * factor));
+    self._vx = mx - (mx - self._vx) * (ns / self._vscale);
+    self._vy = my - (my - self._vy) * (ns / self._vscale);
+    self._vscale = ns;
+    self._applyTransform();
+  }, { passive: false });
 };
 
 // =============================================================
@@ -637,6 +862,13 @@ createApp({
       convLineageModel: '',
       convResults: [],
       convLoading: false,
+      convLineagePreview: [],    // {name, selected} list shown before conversion
+      convLineagePreviewing: false,
+
+      // SQL Optimizer GitLab form
+      sqlOptGlOpen: false,
+      sqlOptGlBranch: 'main',
+      sqlOptGlMsg: 'feat: apply SQL optimization via AIinDbt',
 
       // Scaffold structured mode
       scafMode: 'brief',
@@ -860,7 +1092,12 @@ createApp({
         if (s.bigquery_project_id)   this.bqProjectId         = s.bigquery_project_id;
         if (s.gitlab_base_url)       this.gitlabBaseUrl       = s.gitlab_base_url;
         if (s.gitlab_project)        this.gitlabProject       = s.gitlab_project;
-        if (s.gitlab_branch)         this.gitlabBranch        = s.gitlab_branch;
+        if (s.gitlab_branch) {
+          this.gitlabBranch   = s.gitlab_branch;
+          this.sqlOptGlBranch = s.gitlab_branch;
+          var self2 = this;
+          Object.keys(this.glForms).forEach(function(k) { if (!self2.glForms[k]._userEdited) self2.glForms[k].branch = s.gitlab_branch; });
+        }
         if (s.sql_dialect)           this.sqlDialectSetting   = s.sql_dialect;
         this.teamsWebhookUrl = window.location.origin + '/api/teams/events';
         // Sync GL form branches to current branch
@@ -940,17 +1177,19 @@ createApp({
 
     // ---- Lineage (D1) ------------------------------------------------
     loadLineage: async function() {
+      var self = this;
       try {
         var g = await apiCall('/api/lineage');
         _lineageCache = g;
-        var self = this;
         if (!this._lineageViewer) {
           this._lineageViewer = new LineageViewer('lineage-net', function(node) {
-            self.lineageDetailNode = node;
+            self.lineageDetailNode = node || null;
           });
         }
+        /* refresh container ref in case DOM was recreated */
+        this._lineageViewer.container = document.getElementById('lineage-net');
         this._lineageViewer.load(g);
-        this.toast('Loaded ' + g.nodes.length + ' nodes', 'success');
+        this.toast('Loaded ' + g.nodes.length + ' nodes, ' + g.edges.length + ' edges', 'success');
       } catch (e) { this.toast(e.message, 'error'); }
     },
     lineageSearch: function(q) {
@@ -1426,11 +1665,34 @@ createApp({
       }
     },
 
+    gitlabPushOptimized: async function() {
+      if (!this.sqlResult || !this.sqlResult.optimized_sql) { this.toast('Nothing to push', 'error'); return; }
+      var filePath = this.sqlOptGlMsg.match(/\w+\.sql/) ? this.sqlOptGlMsg.match(/\w+\.sql/)[0] : 'models/optimized.sql';
+      // Build path from mode context
+      if (this.sqlMode === 'single' && this.sqlSingleModel) filePath = 'models/' + this.sqlSingleModel + '.sql';
+      this.gitlabPushing = true;
+      try {
+        var r = await apiCall('/api/gitlab/push', {
+          method: 'POST',
+          body: JSON.stringify({ file_path: filePath, content: this.sqlResult.optimized_sql, branch: this.sqlOptGlBranch || this.gitlabBranch || 'main', commit_message: this.sqlOptGlMsg }),
+        });
+        this.toast('Pushed: ' + r.file_path + ' on ' + r.branch, 'success');
+        this.sqlOptGlOpen = false;
+      } catch (e) { this.toast('GitLab: ' + e.message, 'error'); }
+      finally { this.gitlabPushing = false; }
+    },
+
     // ---- GitLab inline form push ------------------------------------
     gitlabPushForm: async function(formKey, content, filePath) {
-      if (!content || !filePath) { this.toast('Nothing to push', 'error'); return; }
+      if (!content) { this.toast('Nothing to push — generate code first', 'error'); return; }
+      if (!filePath || filePath.includes('/.') || filePath.endsWith('/')) {
+        this.toast('File path is invalid (model name may be empty)', 'error'); return;
+      }
+      if (!this.gitlabToken && !this.gitlabProject) {
+        this.toast('Set GitLab token in Settings first', 'error'); return;
+      }
       var form = this.glForms[formKey] || {};
-      var branch = form.branch || this.gitlabBranch || 'main';
+      var branch  = form.branch  || this.gitlabBranch || 'main';
       var message = form.message || 'feat: update via AIinDbt';
       this.gitlabPushing = true;
       try {
@@ -1438,8 +1700,14 @@ createApp({
           method: 'POST',
           body: JSON.stringify({ file_path: filePath, content: content, branch: branch, commit_message: message }),
         });
-        this.toast('Pushed to GitLab: ' + r.file_path + ' on ' + r.branch, 'success');
-      } catch (e) { this.toast('GitLab push failed: ' + e.message, 'error'); }
+        this.toast('Committed: ' + r.file_path + ' → ' + r.branch, 'success');
+      } catch (e) {
+        var msg = e.message || '';
+        if (msg.includes('404')) msg = 'GitLab 404: check project path and branch name in Settings';
+        else if (msg.includes('401') || msg.includes('403')) msg = 'GitLab auth error — check your Personal Access Token';
+        else if (msg.includes('token')) msg = 'Configure GitLab token in Settings first';
+        this.toast('GitLab: ' + msg, 'error');
+      }
       finally { this.gitlabPushing = false; }
     },
 
@@ -1506,6 +1774,36 @@ createApp({
       } catch (e) { this.toast('Could not load SQL: ' + e.message, 'error'); }
     },
 
+    /* preview: compute which models will be affected before actually converting */
+    previewLineageConvert: async function() {
+      if (!this.convLineageModel.trim()) { this.toast('Enter a root model name', 'error'); return; }
+      this.convLineagePreviewing = true;
+      try {
+        var g = await getLineageGraph();
+        var nodes = g.nodes || [], edges = g.edges || [];
+        var rootNode = null;
+        for (var ni = 0; ni < nodes.length; ni++) {
+          if (nodes[ni].name === this.convLineageModel) { rootNode = nodes[ni]; break; }
+        }
+        if (!rootNode) { this.toast('Model not found in lineage graph. Load the graph first.', 'error'); return; }
+        var queue = [rootNode.id], visited = {}, allNames = [];
+        visited[rootNode.id] = true; allNames.push(this.convLineageModel);
+        var qi2 = 0;
+        while (qi2 < queue.length) {
+          var cur2 = queue[qi2++];
+          edges.forEach(function(e) {
+            if (e.to === cur2 && !visited[e.from]) {
+              visited[e.from] = true; queue.push(e.from);
+              var nd = nodes.find(function(n) { return n.id === e.from; });
+              if (nd) allNames.push(nd.name);
+            }
+          });
+        }
+        this.convLineagePreview = allNames.map(function(nm) { return { name: nm, selected: true }; });
+      } catch (e) { this.toast(e.message, 'error'); }
+      finally { this.convLineagePreviewing = false; }
+    },
+
     runConverter: async function() {
       this.convLoading = true; this.convResults = [];
       var self = this;
@@ -1520,31 +1818,19 @@ createApp({
           r._glOpen = false; r._glBranch = this.gitlabBranch; r._glMsg = 'feat: convert ' + (modelName || 'sql') + ' to ' + this.convTargetDialect;
           this.convResults = [r];
         } else if (this.convMode === 'lineage') {
-          var g = await getLineageGraph();
-          var nodes = g.nodes || [], edges = g.edges || [];
-          var rootNode = nodes.find(function(n) { return n.name === self.convLineageModel; });
-          if (!rootNode) { this.toast('Model not found in lineage', 'error'); this.convLoading = false; return; }
-          // BFS upstream
-          var queue = [rootNode.id], visited = {}, allNames = [self.convLineageModel];
-          visited[rootNode.id] = true;
-          while (queue.length) {
-            var cur = queue.shift();
-            edges.forEach(function(e) {
-              if (e.to === cur && !visited[e.from]) {
-                visited[e.from] = true; queue.push(e.from);
-                var nd = nodes.find(function(n) { return n.id === e.from; });
-                if (nd) allNames.push(nd.name);
-              }
-            });
-          }
+          var toConvert = this.convLineagePreview.length
+            ? this.convLineagePreview.filter(function(p) { return p.selected; }).map(function(p) { return p.name; })
+            : [this.convLineageModel];
+          if (!toConvert.length) { this.toast('No models selected', 'error'); return; }
           var results = [];
-          for (var i = 0; i < allNames.length; i++) {
-            var mn = allNames[i];
+          for (var i = 0; i < toConvert.length; i++) {
+            var mn = toConvert[i];
             var sqlR;
             try { sqlR = await apiCall('/api/models/' + encodeURIComponent(mn) + '/sql'); } catch (_) { continue; }
+            if (!sqlR.raw_sql) continue;
             var convR = await apiCall('/api/converter', {
               method: 'POST',
-              body: JSON.stringify({ sql: sqlR.raw_sql || '', source_dialect: self.convSourceDialect, target_dialect: self.convTargetDialect, model_name: mn }),
+              body: JSON.stringify({ sql: sqlR.raw_sql, source_dialect: self.convSourceDialect, target_dialect: self.convTargetDialect, model_name: mn }),
             });
             convR._glOpen = false; convR._glBranch = self.gitlabBranch; convR._glMsg = 'feat: convert ' + mn + ' to ' + self.convTargetDialect;
             results.push(convR);
@@ -1561,15 +1847,21 @@ createApp({
     },
 
     gitlabPushConverter: async function(res) {
+      if (!res.converted_sql) { this.toast('No converted SQL to push', 'error'); return; }
       var filePath = 'models/' + (res.model_name || 'converted') + '_' + this.convTargetDialect + '.sql';
       this.gitlabPushing = true;
       try {
         var r = await apiCall('/api/gitlab/push', {
           method: 'POST',
-          body: JSON.stringify({ file_path: filePath, content: res.converted_sql || '', branch: res._glBranch || this.gitlabBranch, commit_message: res._glMsg || 'feat: converted SQL' }),
+          body: JSON.stringify({ file_path: filePath, content: res.converted_sql, branch: res._glBranch || this.gitlabBranch || 'main', commit_message: res._glMsg || 'feat: converted SQL' }),
         });
-        this.toast('Pushed to GitLab: ' + r.file_path, 'success');
-      } catch (e) { this.toast('GitLab push failed: ' + e.message, 'error'); }
+        this.toast('Committed: ' + r.file_path + ' → ' + r.branch, 'success');
+        res._glOpen = false; this.convResults = this.convResults.slice();
+      } catch (e) {
+        var msg = e.message || '';
+        if (msg.includes('404')) msg = 'GitLab 404 — check project path and branch in Settings';
+        this.toast('GitLab: ' + msg, 'error');
+      }
       finally { this.gitlabPushing = false; }
     },
 

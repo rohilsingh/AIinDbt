@@ -244,7 +244,7 @@
             </div>
             <button class="ndi-close" @click="lineageDetailNode=null">✕</button>
           </div>
-          <div id="lineage-net"></div>
+          <div id="lineage-net" style="height:600px;width:100%;background:#FAFBFD;border-radius:var(--md-shape-md);border:1px solid var(--md-outline-variant);overflow:hidden"></div>
           <div class="lineage-legend">
             <span class="legend-dot legend-source">Source</span>
             <span class="legend-dot legend-seed">Seed</span>
@@ -729,7 +729,20 @@
           <div v-else class="form-group">
             <label class="form-label">Root model for lineage</label>
             <auto-input v-model="convLineageModel" kind="model" placeholder="fct_orders" input-id="conv_lineage_model"></auto-input>
-            <p style="font-size:.78rem;color:#64748b;margin-top:.3rem">Will convert all models in the upstream lineage chain.</p>
+            <button class="btn btn-secondary btn-sm" style="margin-top:.5rem" @click="previewLineageConvert" :disabled="convLineagePreviewing">
+              {{ convLineagePreviewing ? 'Loading…' : '👁 Preview models affected' }}
+            </button>
+            <div v-if="convLineagePreview.length" style="margin-top:.75rem;padding:.65rem;background:var(--md-surface-container);border-radius:var(--md-shape-sm);border:1px solid var(--md-outline-variant)">
+              <div style="font-size:.78rem;font-weight:700;color:var(--md-on-surface);margin-bottom:.4rem">
+                {{ convLineagePreview.filter(function(p){return p.selected}).length }} of {{ convLineagePreview.length }} models selected
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:.35rem">
+                <label v-for="p in convLineagePreview" :key="p.name" style="display:flex;align-items:center;gap:.25rem;font-size:.78rem;cursor:pointer;padding:.2rem .5rem;border-radius:var(--md-shape-full);border:1px solid var(--md-outline-variant);background:white" :style="p.selected ? 'border-color:var(--md-primary);color:var(--md-primary)' : ''">
+                  <input type="checkbox" v-model="p.selected" style="width:12px;height:12px" />
+                  {{ p.name }}
+                </label>
+              </div>
+            </div>
           </div>
           <button class="btn btn-primary" @click="runConverter" :disabled="convLoading">
             {{ convLoading ? 'Converting…' : '🔄 Convert' }}
@@ -1015,7 +1028,17 @@
           <div class="card">
             <div class="card-header">
               <div class="card-title">Optimized SQL</div>
-              <button class="btn btn-secondary btn-sm" @click="copySqlOptimized">Copy</button>
+              <div class="btn-group">
+                <button class="btn btn-secondary btn-sm" @click="copySqlOptimized">Copy</button>
+                <button class="btn btn-sm btn-gitlab" @click="sqlOptGlOpen = !sqlOptGlOpen">🦊 Commit</button>
+              </div>
+            </div>
+            <div v-if="sqlOptGlOpen" class="gitlab-push-form" style="margin-bottom:.75rem">
+              <div class="gf-row">
+                <div class="gf-field"><label>Branch</label><input type="text" v-model="sqlOptGlBranch" /></div>
+                <div class="gf-field" style="flex:2"><label>Commit message</label><textarea v-model="sqlOptGlMsg"></textarea></div>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPushOptimized" :disabled="gitlabPushing">Commit &amp; Push</button>
+              </div>
             </div>
             <div class="code-block-wrap">
               <pre>{{ sqlResult.optimized_sql }}</pre>
