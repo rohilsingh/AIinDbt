@@ -30,6 +30,16 @@ function formatBotText(text) {
 }
 
 // =============================================================
+// Font size: apply on load
+// =============================================================
+(function() {
+  var saved = localStorage.getItem('aiindbt_fontsize');
+  if (saved) {
+    document.documentElement.style.fontSize = saved + 'px';
+  }
+})();
+
+// =============================================================
 // Model list cache
 // =============================================================
 var _acCache = null;
@@ -63,21 +73,32 @@ async function getModelList() {
 }
 
 // =============================================================
+// Lineage cache
+// =============================================================
+var _lineageCache = null;
+async function getLineageGraph() {
+  if (_lineageCache) return _lineageCache;
+  try {
+    var r = await fetch('/api/lineage');
+    _lineageCache = await r.json();
+  } catch (_) { _lineageCache = { nodes: [], edges: [] }; }
+  return _lineageCache;
+}
+
+// =============================================================
 // DOCS_PAGES
 // =============================================================
 var DOCS_PAGES = [
   { id: 'gs-overview', section: 'Getting Started', title: 'Overview',
-    body: '<p>AIinDbt is a self-hosted web app that brings AI features into your dbt workflow — no cloud signup beyond your API keys.</p><h2>Features</h2><ul><li><b>A1</b> AI Doc Generator — auto-writes YAML descriptions</li><li><b>A2</b> Model Scaffolding — full model from a brief</li><li><b>A3</b> Staging Generator — RAW → stg_*</li><li><b>A4</b> Incremental Advisor — scores &amp; rewrites models</li><li><b>B1</b> Chat — plain-English Q&amp;A on your project</li><li><b>B2</b> NL→SQL — business question → warehouse SQL</li><li><b>B3</b> Semantic Search — search across all models</li><li><b>C1</b> Test Generator — schema.yml tests from sample data</li><li><b>C2</b> Anomaly Detection — Elementary tests</li><li><b>C3</b> Quality Scores — 0–100 health score per model</li><li><b>D1</b> Lineage Graph — interactive DAG</li><li><b>D2</b> Column Lineage — trace a column upstream</li><li><b>D3</b> Health Dashboard — KPI overview</li><li><b>E2</b> Teams Bot — slash commands in Microsoft Teams</li><li>BigQuery runner — run generated SQL directly</li></ul>' },
+    body: '<p>AIinDbt is a self-hosted web app that brings AI features into your dbt workflow — no cloud signup beyond your API keys.</p><h2>Features</h2><ul><li><b>A1</b> AI Doc Generator — auto-writes YAML descriptions</li><li><b>A2</b> Model Scaffolding — full model from a brief</li><li><b>A3</b> Staging Generator — RAW → stg_*</li><li><b>A4</b> Incremental Advisor — scores &amp; rewrites models</li><li><b>B1</b> Chat — plain-English Q&amp;A on your project</li><li><b>B2</b> NL→SQL — business question → warehouse SQL</li><li><b>B3</b> Semantic Search — search across all models</li><li><b>C1</b> Test Generator — schema.yml tests from sample data</li><li><b>C2</b> Anomaly Detection — Elementary tests</li><li><b>C3</b> Quality Scores — 0–100 health score per model</li><li><b>D1</b> Lineage Graph — interactive DAG</li><li><b>D2</b> Column Lineage — trace a column upstream</li><li><b>D3</b> Health Dashboard — KPI overview</li><li><b>E2</b> Teams Bot — slash commands in Microsoft Teams</li><li>BigQuery runner — run generated SQL directly</li><li>Model Splitter — split large models into sub-models</li><li>Dialect Converter — convert SQL between warehouses</li></ul>' },
   { id: 'gs-install', section: 'Getting Started', title: 'Installation',
     body: '<h2>macOS / Linux</h2><pre>pip install -r requirements.txt\n./run.sh</pre><h2>Windows</h2><pre>python -m pip install -r requirements.txt\npython -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload</pre><p>If <code>python</code> not found, use <code>py</code>:</p><pre>py -m pip install -r requirements.txt\npy -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload</pre><div class="callout">Settings are in-memory only — re-enter after server restart.</div>' },
   { id: 'gs-settings', section: 'Getting Started', title: 'Settings',
-    body: '<h2>LLM Key</h2><p>Paste your Cline key, Anthropic key, or OpenRouter key.</p><table><thead><tr><th>Gateway</th><th>Base URL</th></tr></thead><tbody><tr><td>Anthropic direct</td><td>(leave blank)</td></tr><tr><td>OpenRouter / Cline</td><td>https://openrouter.ai/api/v1</td></tr></tbody></table><h2>dbt Project</h2><p>Run <code>dbt parse</code> then upload <code>target/manifest.json</code>. This unlocks autocomplete, lineage, docs generation, and all model-aware features.</p>' },
+    body: '<h2>LLM Key</h2><p>Paste your Cline key, Anthropic key, or OpenRouter key.</p><table><thead><tr><th>Gateway</th><th>Base URL</th></tr></thead><tbody><tr><td>Anthropic direct</td><td>(leave blank)</td></tr><tr><td>OpenRouter / Cline</td><td>https://openrouter.ai/api/v1</td></tr></tbody></table><h2>dbt Project</h2><p>Run <code>dbt parse</code> then upload <code>target/manifest.json</code>. This unlocks autocomplete, lineage, docs generation, and all model-aware features.</p><h2>.env File</h2><p>You can bulk-import settings by uploading a <code>.env</code> file from the Settings panel. Click "Download example .env" to get a template with all supported keys.</p>' },
   { id: 'feat-a1', section: 'Features', title: 'A1 — AI Doc Generator',
     body: '<p>Auto-generates schema.yml descriptions for any model and its columns.</p><h2>How to use</h2><ol><li>Upload manifest.json</li><li>Click <b>List undocumented</b> to see which models need attention</li><li>Type a model name (autocomplete will suggest options)</li><li>Click <b>Generate YAML</b> and paste into your schema.yml</li></ol>' },
   { id: 'feat-a2', section: 'Features', title: 'A2 — Model Scaffolding',
     body: '<p>Generates a complete dbt model (SQL + schema.yml) from a plain-English brief using your real project\'s refs.</p><h2>Quick brief examples</h2><ul><li><i>Daily revenue by country joining orders and customers, last 90 days</i></li><li><i>Monthly active users grouped by plan tier</i></li></ul><p>Click <b>Structured form</b> for a guided, field-by-field approach.</p>' },
-  { id: 'feat-a2-format', section: 'Features', title: 'A2 — Scaffold Format Guide',
-    body: '<h2>Writing a Good Brief</h2><p>The better your brief, the better the generated model. Follow this template for best results:</p><pre>SOURCES: orders, customers\nGRAIN: daily by country\nMETRICS: total_revenue, order_count, avg_order_value\nFILTERS: last 90 days, status != cancelled\nJOINS: orders LEFT JOIN customers ON customer_id</pre><h2>Structured Form Fields</h2><table><thead><tr><th>Field</th><th>What to write</th><th>Example</th></tr></thead><tbody><tr><td>Sources / refs</td><td>Comma-separated model names from your project</td><td>stg_orders, stg_customers</td></tr><tr><td>Grain</td><td>The row-level grain of the output</td><td>daily by country</td></tr><tr><td>Metrics</td><td>Comma-separated measures or aggregations</td><td>revenue, order_count, avg_aov</td></tr><tr><td>Filters</td><td>WHERE conditions in plain English</td><td>last 90 days, not cancelled</td></tr><tr><td>Joins</td><td>How sources relate</td><td>LEFT JOIN customers ON customer_id</td></tr></tbody></table><h2>Generated Output</h2><p>The AI returns a <code>.sql</code> file using <code>{{ ref(\'model_name\') }}</code> plus a <code>schema.yml</code> stub. Paste into your dbt project and run <code>dbt compile</code> to validate.</p><div class="callout">Tip: the more context you give (existing model names, column types, time ranges), the more accurate the output.</div>' },
   { id: 'feat-a3', section: 'Features', title: 'A3 — Staging Generator',
     body: '<p>Reads a RAW source table and generates a clean <code>stg_*</code> model: column renames, type casts, CTE pattern.</p><p>Provide columns as <code>name,type</code> CSV (one per line) or let the manifest load them automatically.</p>' },
   { id: 'feat-a4', section: 'Features', title: 'A4 — Incremental Advisor',
@@ -93,7 +114,7 @@ var DOCS_PAGES = [
   { id: 'feat-c3', section: 'Features', title: 'C3 — Quality Scoring',
     body: '<p>0–100 health score: Docs 40pts + Tests 40pts + Freshness 20pts. Grade A≥85, B≥70, C≥50, D&lt;50. Export to Excel for reporting.</p>' },
   { id: 'feat-d1', section: 'Features', title: 'D1 — Lineage Graph',
-    body: '<p>Interactive DAG with layer colour coding (🟡 Source, 🟣 Seed, 🔵 Staging, 🟢 Intermediate, 🔴 Marts). Click a node for details. Search to highlight nodes.</p>' },
+    body: '<p>Interactive DAG with hierarchical LR layout. Click a node for details inline below the toolbar. Search to highlight + Isolate toggle to show only connected nodes.</p>' },
   { id: 'feat-d2', section: 'Features', title: 'D2 — Column Lineage',
     body: '<p>Traces a column upstream across the model chain using sqlglot SQL parsing. Best-effort — complex Jinja macros may not resolve fully.</p>' },
   { id: 'int-teams', section: 'Integrations', title: 'Microsoft Teams Setup',
@@ -126,12 +147,15 @@ function lineageLayerFor(node) {
   return 'other';
 }
 
-function LineageViewer(netId, detailId) {
+function LineageViewer(netId, onClickNode) {
   this.netEl    = document.getElementById(netId);
-  this.detailEl = document.getElementById(detailId);
   this.network  = null;
   this._nodes   = null;
+  this._edges   = null;
   this._rawNodes = [];
+  this._onClickNode = onClickNode || function() {};
+  this._isolated = false;
+  this._lastSearch = '';
 }
 
 LineageViewer.prototype.load = function(g) {
@@ -148,7 +172,7 @@ LineageViewer.prototype.load = function(g) {
       color: { background: c.bg, border: c.border, highlight: { background: '#BBDEFB', border: '#1565C0' } },
       font: { color: c.font, size: 13, face: 'Roboto, Arial, sans-serif', bold: { size: 14 } },
       shape: n.kind === 'source' ? 'box' : 'ellipse',
-      widthConstraint: { maximum: 220 },
+      widthConstraint: { maximum: 200 },
       margin: 10,
       borderWidth: 2,
       _raw: n,
@@ -158,63 +182,86 @@ LineageViewer.prototype.load = function(g) {
     return { from: e.from, to: e.to, arrows: 'to',
       color: { color: '#B0BEC5', highlight: '#1565C0', opacity: 0.8 },
       width: 1.5,
-      smooth: { type: 'cubicBezier', roundness: 0.4 } };
+      smooth: { type: 'cubicBezier', roundness: 0.3 } };
   }));
   this._nodes = visNodes;
+  this._edges = visEdges;
   this.network = new vis.Network(this.netEl, { nodes: visNodes, edges: visEdges }, {
-    physics: {
-      enabled: true,
-      barnesHut: {
-        gravitationalConstant: -15000,
-        centralGravity: 0.1,
-        springLength: 250,
-        springConstant: 0.04,
-        damping: 0.6,
-        avoidOverlap: 1,
+    physics: { enabled: false },
+    layout: {
+      hierarchical: {
+        enabled: true,
+        direction: 'LR',
+        sortMethod: 'directed',
+        levelSeparation: 230,
+        nodeSpacing: 140,
+        treeSpacing: 200,
+        blockShifting: true,
+        edgeMinimization: true,
+        parentCentralization: true,
       },
-      stabilization: { iterations: 250, updateInterval: 50 },
     },
-    layout: { improvedLayout: true },
     interaction: { hover: true, tooltipDelay: 150, zoomView: true, navigationButtons: false },
-    nodes: { borderWidth: 2, shadow: { enabled: true, color: 'rgba(0,0,0,0.12)', size: 6, x: 1, y: 2 } },
+    nodes: { borderWidth: 2, shadow: { enabled: true, color: 'rgba(0,0,0,0.1)', size: 5, x: 1, y: 2 } },
     edges: { width: 1.5, selectionWidth: 2.5 },
   });
-  this.network.on('click', function(p) { if (p.nodes.length) self._showDetail(p.nodes[0]); });
-  this.network.once('stabilizationIterationsDone', function() { self.network.fit({ animation: { duration: 600 } }); });
+  this.network.on('click', function(p) {
+    if (p.nodes.length) {
+      self._showDetail(p.nodes[0]);
+      // Smooth center animation
+      self.network.focus(p.nodes[0], { scale: self.network.getScale(), animation: { duration: 400, easingFunction: 'easeInOutCubic' } });
+    }
+  });
+  this.network.once('afterDrawing', function() { self.network.fit({ animation: { duration: 700 } }); });
 };
 
 LineageViewer.prototype.search = function(q) {
   var self = this;
+  this._lastSearch = q;
   if (!this._nodes) return;
   if (!q.trim()) {
-    this._nodes.forEach(function(n) { self._nodes.update({ id: n.id, opacity: 1 }); });
+    this._nodes.forEach(function(n) { self._nodes.update({ id: n.id, opacity: 1, hidden: false }); });
     return;
   }
   var lower = q.toLowerCase(), matches = new Set();
   this._rawNodes.forEach(function(n) { if (n.name.toLowerCase().includes(lower)) matches.add(n.id); });
-  this._nodes.forEach(function(n) { self._nodes.update({ id: n.id, opacity: matches.has(n.id) ? 1 : 0.15 }); });
-  if (matches.size === 1) this.network.focus(Array.from(matches)[0], { scale: 1.5, animation: true });
+
+  if (this._isolated) {
+    // Find connected node IDs
+    var connected = new Set(matches);
+    if (this._edges) {
+      this._edges.forEach(function(e) {
+        if (matches.has(e.from)) connected.add(e.to);
+        if (matches.has(e.to)) connected.add(e.from);
+      });
+    }
+    this._nodes.forEach(function(n) {
+      self._nodes.update({ id: n.id, opacity: connected.has(n.id) ? 1 : 0.05, hidden: !connected.has(n.id) });
+    });
+  } else {
+    this._nodes.forEach(function(n) { self._nodes.update({ id: n.id, opacity: matches.has(n.id) ? 1 : 0.15, hidden: false }); });
+  }
+
+  if (matches.size >= 1) {
+    this.network.focus(Array.from(matches)[0], { scale: 1.4, animation: { duration: 500, easingFunction: 'easeInOutCubic' } });
+  }
 };
 
-LineageViewer.prototype.fitView  = function() { this.network && this.network.fit({ animation: true }); };
+LineageViewer.prototype.toggleIsolate = function() {
+  this._isolated = !this._isolated;
+  this.search(this._lastSearch);
+  return this._isolated;
+};
+
+LineageViewer.prototype.fitView  = function() { this.network && this.network.fit({ animation: { duration: 500 } }); };
 LineageViewer.prototype.zoomIn   = function() { this.network && this.network.moveTo({ scale: (this.network.getScale() || 1) * 1.3 }); };
 LineageViewer.prototype.zoomOut  = function() { this.network && this.network.moveTo({ scale: (this.network.getScale() || 1) * 0.77 }); };
 LineageViewer.prototype.setPhysics = function(on) { this.network && this.network.setOptions({ physics: { enabled: on } }); };
 
 LineageViewer.prototype._showDetail = function(id) {
   var node = this._rawNodes.find(function(n) { return n.id === id; });
-  if (!node || !this.detailEl) return;
-  var c = LAYER_COLORS[lineageLayerFor(node)] || LAYER_COLORS.other;
-  this.detailEl.style.display = 'block';
-  this.detailEl.innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">' +
-      '<h4 style="color:' + c.border + '">' + esc(node.name) + '</h4>' +
-      '<button onclick="this.closest(\'.node-detail-panel\').style.display=\'none\'" style="background:none;border:none;cursor:pointer;color:#94a3b8">✕</button>' +
-    '</div>' +
-    '<div class="nd-row"><span class="nd-key">Kind</span><span>' + esc(node.kind) + '</span></div>' +
-    (node.schema ? '<div class="nd-row"><span class="nd-key">Schema</span><span>' + esc(node.schema) + '</span></div>' : '') +
-    (node.materialized ? '<div class="nd-row"><span class="nd-key">Mat.</span><span>' + esc(node.materialized) + '</span></div>' : '') +
-    (node.description ? '<p style="font-size:.78rem;color:#475569;margin-top:.4rem;line-height:1.4">' + esc(node.description.slice(0, 200)) + '</p>' : '');
+  if (!node) return;
+  this._onClickNode(node);
 };
 
 // =============================================================
@@ -407,6 +454,7 @@ const { createApp } = Vue;
 createApp({
   // ------------------------------------------------------------------
   data: function() {
+    var savedFontSize = parseInt(localStorage.getItem('aiindbt_fontsize') || '14', 10);
     return {
       // Navigation
       panel: 'health',
@@ -417,6 +465,10 @@ createApp({
       // Status
       statusDots: [],
       lineageBadge: 0,
+      llmConfigured: false,
+
+      // Font size
+      fontSize: savedFontSize,
 
       // Settings
       llmApiKey: '',
@@ -429,6 +481,7 @@ createApp({
       teamsSecret: '',
       teamsWebhook: '',
       teamsWebhookUrl: '',
+      sqlDialectSetting: 'snowflake',
 
       // Health
       healthKpis: [],
@@ -440,12 +493,17 @@ createApp({
 
       // Lineage
       _lineageViewer: null,
+      lineageDetailNode: null,
+      lineageIsolated: false,
 
       // Column lineage
       colModel: '',
       colColumn: '',
+      colColQ: '',
       colTrail: [],
       colRan: false,
+      colColumnSuggestions: [],
+      showColSuggestions: false,
 
       // Search
       searchQ: '',
@@ -536,6 +594,14 @@ createApp({
       sqlVendor: 'snowflake',
       sqlResult: null,
       sqlLoading: false,
+      sqlMode: 'paste',
+      sqlSingleModel: '',
+      sqlLineageModel: '',
+      sqlLineageModels: [],
+      sqlHandpickInput: '',
+      sqlHandpicked: [],
+      sqlModelSqls: {},
+      sqlSuggestions: [],
 
       // GitLab
       gitlabBaseUrl: 'https://gitlab.com',
@@ -544,6 +610,33 @@ createApp({
       gitlabBranch: 'main',
       gitlabBranches: [],
       gitlabPushing: false,
+
+      // GitLab inline push forms (keyed by form id)
+      glForms: {
+        docYaml:  { branch: 'main', message: 'feat: add AI-generated docs via AIinDbt' },
+        scafSql:  { branch: 'main', message: 'feat: add scaffolded model via AIinDbt' },
+        scafYaml: { branch: 'main', message: 'feat: add scaffold schema.yml via AIinDbt' },
+        stgSql:   { branch: 'main', message: 'feat: add staging model via AIinDbt' },
+        stgYaml:  { branch: 'main', message: 'feat: add staging schema.yml via AIinDbt' },
+      },
+
+      // Model Splitter
+      splitterSql: '',
+      splitterModelName: 'my_model',
+      splitterResult: null,
+      splitterLoading: false,
+      splitterGlBranch: null,
+      splitterGlMsg: null,
+
+      // Dialect Converter
+      convSourceDialect: 'snowflake',
+      convTargetDialect: 'bigquery',
+      convMode: 'paste',
+      convSql: '',
+      convModelName: '',
+      convLineageModel: '',
+      convResults: [],
+      convLoading: false,
 
       // Scaffold structured mode
       scafMode: 'brief',
@@ -596,7 +689,7 @@ createApp({
         anomaly: 'Anomaly Detection', lineage: 'Lineage Graph',
         collineage: 'Column Lineage', teams: 'Microsoft Teams',
         bigquery: 'BigQuery', settings: 'Settings', apidocs: 'Documentation',
-        sqlopt: 'SQL Optimizer',
+        sqlopt: 'SQL Optimizer', splitter: 'Model Splitter', converter: 'Dialect Converter',
       };
       return map[this.panel] || 'AIinDbt';
     },
@@ -625,6 +718,23 @@ createApp({
         return step.model + '.' + step.column + '  ←  ' + srcs + (step.note ? ' — ' + step.note : '');
       }).join('\n');
     },
+
+    filteredColSuggestions: function() {
+      var q = (this.colColQ || '').toLowerCase();
+      if (!q) return this.colColumnSuggestions;
+      return this.colColumnSuggestions.filter(function(c) { return c.toLowerCase().includes(q); });
+    },
+  },
+
+  // ------------------------------------------------------------------
+  watch: {
+    gitlabBranch: function(val) {
+      // Sync default branch to all GL forms
+      var self = this;
+      Object.keys(this.glForms).forEach(function(k) {
+        if (!self.glForms[k]._userEdited) self.glForms[k].branch = val;
+      });
+    },
   },
 
   // ------------------------------------------------------------------
@@ -640,11 +750,101 @@ createApp({
       }, 3500);
     },
 
+    // ---- Copy text ---------------------------------------------------
+    copyText: async function(txt) {
+      if (!txt) return;
+      await navigator.clipboard.writeText(txt);
+      this.toast('Copied', 'success');
+    },
+
+    // ---- Font size ---------------------------------------------------
+    setFontSize: function(size) {
+      this.fontSize = size;
+      document.documentElement.style.fontSize = size + 'px';
+      localStorage.setItem('aiindbt_fontsize', String(size));
+    },
+
+    // ---- .env upload -------------------------------------------------
+    uploadEnvFile: function(event) {
+      var self = this;
+      var file = event.target.files && event.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var text = e.target.result;
+        var lines = text.split('\n');
+        var map = {};
+        lines.forEach(function(line) {
+          line = line.trim();
+          if (!line || line.startsWith('#')) return;
+          var eq = line.indexOf('=');
+          if (eq < 0) return;
+          var key = line.slice(0, eq).trim();
+          var val = line.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+          map[key] = val;
+        });
+        // Map env keys to settings
+        if (map.LLM_API_KEY)              self.llmApiKey           = map.LLM_API_KEY;
+        if (map.LLM_BASE_URL)             self.llmBaseUrl          = map.LLM_BASE_URL;
+        if (map.LLM_MODEL)                self.llmModel            = map.LLM_MODEL;
+        if (map.SQL_DIALECT)              self.sqlDialectSetting   = map.SQL_DIALECT;
+        if (map.DBT_CLOUD_HOST)           self.dbtCloudHost        = map.DBT_CLOUD_HOST;
+        if (map.DBT_CLOUD_ACCOUNT_ID)     self.dbtCloudAccountId   = map.DBT_CLOUD_ACCOUNT_ID;
+        if (map.DBT_CLOUD_PROJECT_ID)     self.dbtCloudProjectId   = map.DBT_CLOUD_PROJECT_ID;
+        if (map.DBT_CLOUD_TOKEN)          self.dbtCloudToken       = map.DBT_CLOUD_TOKEN;
+        if (map.GITLAB_BASE_URL)          self.gitlabBaseUrl       = map.GITLAB_BASE_URL;
+        if (map.GITLAB_TOKEN)             self.gitlabToken         = map.GITLAB_TOKEN;
+        if (map.GITLAB_PROJECT)           self.gitlabProject       = map.GITLAB_PROJECT;
+        if (map.GITLAB_BRANCH)            self.gitlabBranch        = map.GITLAB_BRANCH;
+        if (map.TEAMS_OUTGOING_SECRET)    self.teamsSecret         = map.TEAMS_OUTGOING_SECRET;
+        if (map.TEAMS_INCOMING_WEBHOOK)   self.teamsWebhook        = map.TEAMS_INCOMING_WEBHOOK;
+        self.toast('Loaded ' + Object.keys(map).length + ' keys from .env', 'success');
+      };
+      reader.readAsText(file);
+      // Reset input so same file can be reloaded
+      event.target.value = '';
+    },
+
+    // ---- Download example .env ---------------------------------------
+    downloadExampleEnv: function() {
+      var content = [
+        '# AIinDbt example .env — fill in your values and upload via Settings',
+        '',
+        '# LLM',
+        'LLM_API_KEY=sk-ant-...',
+        'LLM_BASE_URL=',
+        'LLM_MODEL=claude-sonnet-4-6',
+        'SQL_DIALECT=snowflake',
+        '',
+        '# dbt Cloud (alternative to manifest.json upload)',
+        'DBT_CLOUD_HOST=cloud.getdbt.com',
+        'DBT_CLOUD_ACCOUNT_ID=',
+        'DBT_CLOUD_PROJECT_ID=',
+        'DBT_CLOUD_TOKEN=',
+        '',
+        '# GitLab',
+        'GITLAB_BASE_URL=https://gitlab.com',
+        'GITLAB_TOKEN=glpat-...',
+        'GITLAB_PROJECT=myorg/my-dbt-repo',
+        'GITLAB_BRANCH=main',
+        '',
+        '# Microsoft Teams',
+        'TEAMS_OUTGOING_SECRET=',
+        'TEAMS_INCOMING_WEBHOOK=',
+      ].join('\n');
+      var blob = new Blob([content], { type: 'text/plain' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '.env.example';
+      a.click();
+    },
+
     // ---- Status / Settings load --------------------------------------
     loadStatus: async function() {
       try {
         var s = await apiCall('/api/settings');
         var cfg = s.configured || {};
+        this.llmConfigured = !!cfg.llm;
         this.statusDots = [
           { label: 'LLM',     ok: !!cfg.llm },
           { label: 'Project', ok: !!(cfg.manifest || cfg.dbt_cloud) },
@@ -661,7 +861,12 @@ createApp({
         if (s.gitlab_base_url)       this.gitlabBaseUrl       = s.gitlab_base_url;
         if (s.gitlab_project)        this.gitlabProject       = s.gitlab_project;
         if (s.gitlab_branch)         this.gitlabBranch        = s.gitlab_branch;
+        if (s.sql_dialect)           this.sqlDialectSetting   = s.sql_dialect;
         this.teamsWebhookUrl = window.location.origin + '/api/teams/events';
+        // Sync GL form branches to current branch
+        var branch = s.gitlab_branch || 'main';
+        var self = this;
+        Object.keys(this.glForms).forEach(function(k) { self.glForms[k].branch = branch; });
       } catch (_) {}
       getModelList();
     },
@@ -685,6 +890,7 @@ createApp({
             gitlab_token:          this.gitlabToken     || undefined,
             gitlab_project:        this.gitlabProject   || undefined,
             gitlab_branch:         this.gitlabBranch    || undefined,
+            sql_dialect:           this.sqlDialectSetting || undefined,
           }),
         });
         // Upload manifest/catalog files if selected
@@ -736,14 +942,25 @@ createApp({
     loadLineage: async function() {
       try {
         var g = await apiCall('/api/lineage');
+        _lineageCache = g;
+        var self = this;
         if (!this._lineageViewer) {
-          this._lineageViewer = new LineageViewer('lineage-net', 'lineage-detail');
+          this._lineageViewer = new LineageViewer('lineage-net', function(node) {
+            self.lineageDetailNode = node;
+          });
         }
         this._lineageViewer.load(g);
         this.toast('Loaded ' + g.nodes.length + ' nodes', 'success');
       } catch (e) { this.toast(e.message, 'error'); }
     },
-    lineageSearch: function(q) { this._lineageViewer && this._lineageViewer.search(q); },
+    lineageSearch: function(q) {
+      if (this._lineageViewer) this._lineageViewer.search(q);
+    },
+    lineageToggleIsolate: function() {
+      if (this._lineageViewer) {
+        this.lineageIsolated = this._lineageViewer.toggleIsolate();
+      }
+    },
     lineageFit:    function() { this._lineageViewer && this._lineageViewer.fitView(); },
     lineageZoomIn: function() { this._lineageViewer && this._lineageViewer.zoomIn(); },
     lineageZoomOut: function() { this._lineageViewer && this._lineageViewer.zoomOut(); },
@@ -757,6 +974,20 @@ createApp({
         this.colTrail = r.trail || [];
         this.colRan = true;
       } catch (e) { this.toast(e.message, 'error'); }
+    },
+
+    loadColColumns: async function(modelName) {
+      var name = modelName || this.colModel;
+      if (!name) { this.colColumnSuggestions = []; return; }
+      try {
+        var r = await apiCall('/api/models/' + encodeURIComponent(name) + '/columns');
+        this.colColumnSuggestions = r.columns || [];
+      } catch (_) { this.colColumnSuggestions = []; }
+    },
+
+    hideColSuggestions: function() {
+      var self = this;
+      setTimeout(function() { self.showColSuggestions = false; }, 150);
     },
 
     // ---- Search (B3) -------------------------------------------------
@@ -1054,13 +1285,135 @@ createApp({
     },
 
     // ---- SQL Optimizer ----------------------------------------------
+    loadSingleModelSql: async function(name) {
+      var n = name || this.sqlSingleModel;
+      if (!n) return;
+      try {
+        var r = await apiCall('/api/models/' + encodeURIComponent(n) + '/sql');
+        var sqls = Object.assign({}, this.sqlModelSqls);
+        sqls[n] = r.raw_sql || '';
+        this.sqlModelSqls = sqls;
+        this.sqlInput = r.raw_sql || '';
+      } catch (e) { this.toast('Could not load SQL for ' + n + ': ' + e.message, 'error'); }
+    },
+
+    addHandpickedModel: function(name) {
+      if (!name) return;
+      if (this.sqlHandpicked.indexOf(name) < 0) {
+        this.sqlHandpicked = this.sqlHandpicked.concat([name]);
+      }
+      this.sqlHandpickInput = '';
+    },
+
+    removeHandpickedModel: function(name) {
+      this.sqlHandpicked = this.sqlHandpicked.filter(function(m) { return m !== name; });
+    },
+
+    loadSqlSuggestions: async function() {
+      try {
+        var rows = await apiCall('/api/quality');
+        this.sqlSuggestions = rows.filter(function(r) { return r.score < 70; })
+          .sort(function(a, b) { return a.score - b.score; })
+          .slice(0, 15)
+          .map(function(r) { return { name: r.name, score: r.score }; });
+        if (!this.sqlSuggestions.length) this.toast('All models score ≥ 70 — no suggestions', 'info');
+      } catch (e) { this.toast(e.message, 'error'); }
+    },
+
+    _buildSqlInput: async function() {
+      // Build sqlInput from current mode
+      var self = this;
+      if (this.sqlMode === 'paste') {
+        return this.sqlInput;
+      }
+      if (this.sqlMode === 'single') {
+        if (!this.sqlModelSqls[this.sqlSingleModel]) await this.loadSingleModelSql(this.sqlSingleModel);
+        return this.sqlModelSqls[this.sqlSingleModel] || this.sqlInput;
+      }
+      if (this.sqlMode === 'handpick') {
+        var sqls = [];
+        for (var i = 0; i < this.sqlHandpicked.length; i++) {
+          var m = this.sqlHandpicked[i];
+          if (!this.sqlModelSqls[m]) {
+            try {
+              var r = await apiCall('/api/models/' + encodeURIComponent(m) + '/sql');
+              var updated = Object.assign({}, self.sqlModelSqls);
+              updated[m] = r.raw_sql || '';
+              self.sqlModelSqls = updated;
+            } catch (_) {}
+          }
+          if (this.sqlModelSqls[m]) sqls.push('-- Model: ' + m + '\n' + this.sqlModelSqls[m]);
+        }
+        return sqls.join('\n\n');
+      }
+      if (this.sqlMode === 'upstream' || this.sqlMode === 'downstream') {
+        if (!this.sqlLineageModel) return '';
+        var g = await getLineageGraph();
+        var nodes = g.nodes || [], edges = g.edges || [];
+        var targetNode = nodes.find(function(n) { return n.name === self.sqlLineageModel; });
+        if (!targetNode) return '';
+        var targetId = targetNode.id;
+        var relatedNames = [self.sqlLineageModel];
+        if (self.sqlMode === 'upstream') {
+          // BFS upstream
+          var queue = [targetId];
+          var visited = {};
+          visited[targetId] = true;
+          while (queue.length) {
+            var cur = queue.shift();
+            edges.forEach(function(e) {
+              if (e.to === cur && !visited[e.from]) {
+                visited[e.from] = true;
+                queue.push(e.from);
+                var n = nodes.find(function(nd) { return nd.id === e.from; });
+                if (n) relatedNames.push(n.name);
+              }
+            });
+          }
+        } else {
+          // BFS downstream
+          var queue2 = [targetId];
+          var visited2 = {};
+          visited2[targetId] = true;
+          while (queue2.length) {
+            var cur2 = queue2.shift();
+            edges.forEach(function(e) {
+              if (e.from === cur2 && !visited2[e.to]) {
+                visited2[e.to] = true;
+                queue2.push(e.to);
+                var n2 = nodes.find(function(nd) { return nd.id === e.to; });
+                if (n2) relatedNames.push(n2.name);
+              }
+            });
+          }
+        }
+        self.sqlLineageModels = relatedNames;
+        var sqls2 = [];
+        for (var j = 0; j < relatedNames.length; j++) {
+          var mn = relatedNames[j];
+          if (!self.sqlModelSqls[mn]) {
+            try {
+              var r2 = await apiCall('/api/models/' + encodeURIComponent(mn) + '/sql');
+              var upd2 = Object.assign({}, self.sqlModelSqls);
+              upd2[mn] = r2.raw_sql || '';
+              self.sqlModelSqls = upd2;
+            } catch (_) {}
+          }
+          if (self.sqlModelSqls[mn]) sqls2.push('-- Model: ' + mn + '\n' + self.sqlModelSqls[mn]);
+        }
+        return sqls2.join('\n\n');
+      }
+      return this.sqlInput;
+    },
+
     optimizeSQL: async function() {
-      if (!this.sqlInput.trim()) return;
+      var sql = await this._buildSqlInput();
+      if (!sql || !sql.trim()) { this.toast('No SQL to optimize', 'error'); return; }
       this.sqlLoading = true; this.sqlResult = null;
       try {
         this.sqlResult = await apiCall('/api/sql/optimize', {
           method: 'POST',
-          body: JSON.stringify({ sql: this.sqlInput, vendor: this.sqlVendor }),
+          body: JSON.stringify({ sql: sql, vendor: this.sqlVendor }),
         });
       } catch (e) { this.toast(e.message, 'error'); }
       finally { this.sqlLoading = false; }
@@ -1073,15 +1426,24 @@ createApp({
       }
     },
 
-    // ---- GitLab -----------------------------------------------------
-    loadGitlabBranches: async function() {
-      if (!this.gitlabProject.trim()) { this.toast('Set GitLab project in Settings first', 'error'); return; }
+    // ---- GitLab inline form push ------------------------------------
+    gitlabPushForm: async function(formKey, content, filePath) {
+      if (!content || !filePath) { this.toast('Nothing to push', 'error'); return; }
+      var form = this.glForms[formKey] || {};
+      var branch = form.branch || this.gitlabBranch || 'main';
+      var message = form.message || 'feat: update via AIinDbt';
+      this.gitlabPushing = true;
       try {
-        this.gitlabBranches = await apiCall('/api/gitlab/branches');
-        if (!this.gitlabBranches.length) this.toast('No branches found', 'info');
-      } catch (e) { this.toast('GitLab: ' + e.message, 'error'); }
+        var r = await apiCall('/api/gitlab/push', {
+          method: 'POST',
+          body: JSON.stringify({ file_path: filePath, content: content, branch: branch, commit_message: message }),
+        });
+        this.toast('Pushed to GitLab: ' + r.file_path + ' on ' + r.branch, 'success');
+      } catch (e) { this.toast('GitLab push failed: ' + e.message, 'error'); }
+      finally { this.gitlabPushing = false; }
     },
 
+    // ---- Legacy gitlabPush (kept for compatibility) ------------------
     gitlabPush: async function(content, filePath) {
       if (!content || !filePath) { this.toast('Nothing to push', 'error'); return; }
       this.gitlabPushing = true;
@@ -1095,6 +1457,118 @@ createApp({
           }),
         });
         this.toast('Pushed to GitLab: ' + r.file_path + ' on ' + r.branch, 'success');
+      } catch (e) { this.toast('GitLab push failed: ' + e.message, 'error'); }
+      finally { this.gitlabPushing = false; }
+    },
+
+    // ---- GitLab -------------------------------------------------------
+    loadGitlabBranches: async function() {
+      if (!this.gitlabProject.trim()) { this.toast('Set GitLab project in Settings first', 'error'); return; }
+      try {
+        this.gitlabBranches = await apiCall('/api/gitlab/branches');
+        if (!this.gitlabBranches.length) this.toast('No branches found', 'info');
+      } catch (e) { this.toast('GitLab: ' + e.message, 'error'); }
+    },
+
+    // ---- Model Splitter ---------------------------------------------
+    analyzeSplitter: async function() {
+      if (!this.splitterSql.trim()) { this.toast('Paste SQL to analyze', 'error'); return; }
+      this.splitterLoading = true; this.splitterResult = null;
+      try {
+        this.splitterResult = await apiCall('/api/splitter', {
+          method: 'POST',
+          body: JSON.stringify({ sql: this.splitterSql, model_name: this.splitterModelName || 'my_model' }),
+        });
+      } catch (e) { this.toast(e.message, 'error'); }
+      finally { this.splitterLoading = false; }
+    },
+
+    gitlabPushSplitter: async function(sub, idx) {
+      var branch = (this.splitterGlBranch && this.splitterGlBranch[1] === idx ? this.splitterGlBranch[0] : null) || this.gitlabBranch || 'main';
+      var message = (this.splitterGlMsg && this.splitterGlMsg[1] === idx ? this.splitterGlMsg[0] : null) || ('feat: add sub-model ' + sub.name);
+      this.gitlabPushing = true;
+      try {
+        var r = await apiCall('/api/gitlab/push', {
+          method: 'POST',
+          body: JSON.stringify({ file_path: 'models/' + sub.name + '.sql', content: sub.sql || '', branch: branch, commit_message: message }),
+        });
+        this.toast('Pushed ' + sub.name + ' to ' + r.branch, 'success');
+      } catch (e) { this.toast('GitLab push failed: ' + e.message, 'error'); }
+      finally { this.gitlabPushing = false; }
+    },
+
+    // ---- Dialect Converter ------------------------------------------
+    loadConvModelSql: async function(name) {
+      if (!name) return;
+      try {
+        var r = await apiCall('/api/models/' + encodeURIComponent(name) + '/sql');
+        this.convSql = r.raw_sql || '';
+      } catch (e) { this.toast('Could not load SQL: ' + e.message, 'error'); }
+    },
+
+    runConverter: async function() {
+      this.convLoading = true; this.convResults = [];
+      var self = this;
+      try {
+        if (this.convMode === 'paste' || this.convMode === 'model') {
+          var sql = this.convSql;
+          var modelName = this.convMode === 'model' ? this.convModelName : '';
+          var r = await apiCall('/api/converter', {
+            method: 'POST',
+            body: JSON.stringify({ sql: sql, source_dialect: this.convSourceDialect, target_dialect: this.convTargetDialect, model_name: modelName }),
+          });
+          r._glOpen = false; r._glBranch = this.gitlabBranch; r._glMsg = 'feat: convert ' + (modelName || 'sql') + ' to ' + this.convTargetDialect;
+          this.convResults = [r];
+        } else if (this.convMode === 'lineage') {
+          var g = await getLineageGraph();
+          var nodes = g.nodes || [], edges = g.edges || [];
+          var rootNode = nodes.find(function(n) { return n.name === self.convLineageModel; });
+          if (!rootNode) { this.toast('Model not found in lineage', 'error'); this.convLoading = false; return; }
+          // BFS upstream
+          var queue = [rootNode.id], visited = {}, allNames = [self.convLineageModel];
+          visited[rootNode.id] = true;
+          while (queue.length) {
+            var cur = queue.shift();
+            edges.forEach(function(e) {
+              if (e.to === cur && !visited[e.from]) {
+                visited[e.from] = true; queue.push(e.from);
+                var nd = nodes.find(function(n) { return n.id === e.from; });
+                if (nd) allNames.push(nd.name);
+              }
+            });
+          }
+          var results = [];
+          for (var i = 0; i < allNames.length; i++) {
+            var mn = allNames[i];
+            var sqlR;
+            try { sqlR = await apiCall('/api/models/' + encodeURIComponent(mn) + '/sql'); } catch (_) { continue; }
+            var convR = await apiCall('/api/converter', {
+              method: 'POST',
+              body: JSON.stringify({ sql: sqlR.raw_sql || '', source_dialect: self.convSourceDialect, target_dialect: self.convTargetDialect, model_name: mn }),
+            });
+            convR._glOpen = false; convR._glBranch = self.gitlabBranch; convR._glMsg = 'feat: convert ' + mn + ' to ' + self.convTargetDialect;
+            results.push(convR);
+          }
+          this.convResults = results;
+        }
+      } catch (e) { this.toast(e.message, 'error'); }
+      finally { this.convLoading = false; }
+    },
+
+    openConvGlForm: function(idx) {
+      var res = this.convResults[idx];
+      if (res) { res._glOpen = !res._glOpen; this.convResults = this.convResults.slice(); }
+    },
+
+    gitlabPushConverter: async function(res) {
+      var filePath = 'models/' + (res.model_name || 'converted') + '_' + this.convTargetDialect + '.sql';
+      this.gitlabPushing = true;
+      try {
+        var r = await apiCall('/api/gitlab/push', {
+          method: 'POST',
+          body: JSON.stringify({ file_path: filePath, content: res.converted_sql || '', branch: res._glBranch || this.gitlabBranch, commit_message: res._glMsg || 'feat: converted SQL' }),
+        });
+        this.toast('Pushed to GitLab: ' + r.file_path, 'success');
       } catch (e) { this.toast('GitLab push failed: ' + e.message, 'error'); }
       finally { this.gitlabPushing = false; }
     },
@@ -1117,6 +1591,9 @@ createApp({
   mounted: function() {
     this.loadStatus();
     this.loadHealth();
+    // Apply saved font size
+    var saved = localStorage.getItem('aiindbt_fontsize');
+    if (saved) { document.documentElement.style.fontSize = saved + 'px'; this.fontSize = parseInt(saved, 10); }
   },
 })
 .component('DataTable', DataTableComp)

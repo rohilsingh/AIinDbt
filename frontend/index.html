@@ -85,6 +85,12 @@
       <div class="sidebar-item" :class="{active: panel==='incremental'}" @click="panel='incremental'; sidebarOpen=false">
         <span class="icon">⚡</span><span class="label">Incremental Advisor</span>
       </div>
+      <div class="sidebar-item" :class="{active: panel==='splitter'}" @click="panel='splitter'; sidebarOpen=false">
+        <span class="icon">✂️</span><span class="label">Model Splitter</span>
+      </div>
+      <div class="sidebar-item" :class="{active: panel==='converter'}" @click="panel='converter'; sidebarOpen=false">
+        <span class="icon">🔄</span><span class="label">Dialect Converter</span>
+      </div>
     </div>
 
     <div class="sidebar-section">
@@ -163,6 +169,9 @@
         <div class="topbar-subtitle">{{ panelTitle }}</div>
       </div>
       <div class="topbar-actions">
+        <span :class="'llm-status-pill ' + (llmConfigured ? 'ok' : 'no')">
+          {{ llmConfigured ? '● LLM ready' : '● No LLM' }}
+        </span>
         <button class="btn btn-secondary btn-sm" @click="bookmarksOpen = !bookmarksOpen">🔖 Bookmarks</button>
       </div>
     </header>
@@ -183,7 +192,12 @@
             <div class="kpi-label">{{ k.label }}</div>
           </div>
         </div>
-        <div v-else style="color:#94a3b8">Upload a manifest first.</div>
+        <div v-else class="health-empty">
+          <div class="he-icon">📂</div>
+          <h3>No manifest loaded yet</h3>
+          <p>Upload your <code>manifest.json</code> in Settings to unlock the full health dashboard, lineage graph, and all model-aware features.</p>
+          <button class="btn btn-primary" @click="panel='settings'">Go to Settings</button>
+        </div>
         <div class="card" style="margin-top:1rem">
           <div class="card-header"><div class="card-title">Worst Offenders</div></div>
           <data-table :rows="healthWorst" :columns="healthWorstCols" :badges="['grade']" export-name="health-worst" />
@@ -213,18 +227,24 @@
         </div>
         <div class="lineage-wrap">
           <div class="lineage-toolbar">
-            <input placeholder="Highlight model…" @input="lineageSearch($event.target.value)" />
+            <input placeholder="Search model…" @input="lineageSearch($event.target.value)" />
+            <button class="lineage-isolate-btn" :class="{active: lineageIsolated}" @click="lineageToggleIsolate()" title="Show only searched node + connections">Isolate</button>
             <button class="btn btn-secondary btn-sm" @click="lineageFit">⊡ Fit</button>
             <button class="btn btn-secondary btn-sm" @click="lineageZoomIn">＋</button>
             <button class="btn btn-secondary btn-sm" @click="lineageZoomOut">－</button>
-            <label style="display:flex;align-items:center;gap:.3rem;font-size:.8rem;color:#64748b;margin-left:.5rem">
-              <input type="checkbox" checked @change="lineageSetPhysics($event.target.checked)" /> Physics
-            </label>
           </div>
-          <div style="position:relative">
-            <div id="lineage-net"></div>
-            <div id="lineage-detail" class="node-detail-panel" style="display:none"></div>
+          <!-- Inline detail panel below toolbar -->
+          <div id="lineage-detail-inline" class="node-detail-inline" v-show="lineageDetailNode">
+            <div v-if="lineageDetailNode">
+              <div class="ndi-name">{{ lineageDetailNode.name }}</div>
+              <div class="ndi-row"><span class="ndi-key">Kind:</span> {{ lineageDetailNode.kind }}</div>
+              <div class="ndi-row" v-if="lineageDetailNode.schema"><span class="ndi-key">Schema:</span> {{ lineageDetailNode.schema }}</div>
+              <div class="ndi-row" v-if="lineageDetailNode.materialized"><span class="ndi-key">Mat.:</span> {{ lineageDetailNode.materialized }}</div>
+              <div v-if="lineageDetailNode.description" style="font-size:.78rem;color:#475569;margin-top:.3rem;max-width:480px">{{ lineageDetailNode.description.slice(0,200) }}</div>
+            </div>
+            <button class="ndi-close" @click="lineageDetailNode=null">✕</button>
           </div>
+          <div id="lineage-net"></div>
           <div class="lineage-legend">
             <span class="legend-dot legend-source">Source</span>
             <span class="legend-dot legend-seed">Seed</span>
@@ -243,11 +263,14 @@
         <div class="card">
           <div class="form-group">
             <label class="form-label">Model name</label>
-            <auto-input v-model="colModel" kind="model" placeholder="dim_customers" input-id="col_model"></auto-input>
+            <auto-input v-model="colModel" kind="model" placeholder="dim_customers" input-id="col_model" @update:model-value="loadColColumns"></auto-input>
           </div>
-          <div class="form-group">
+          <div class="form-group" style="position:relative">
             <label class="form-label">Column name</label>
-            <input type="text" v-model="colColumn" placeholder="customer_id" />
+            <input type="text" v-model="colColumn" placeholder="customer_id" @input="colColQ=$event.target.value" @focus="showColSuggestions=true" @blur="hideColSuggestions()" />
+            <div class="col-suggestions" v-if="showColSuggestions && filteredColSuggestions.length">
+              <div v-for="c in filteredColSuggestions" :key="c" class="col-suggestion-item" @mousedown.prevent="colColumn=c; showColSuggestions=false">{{ c }}</div>
+            </div>
           </div>
           <button class="btn btn-primary" @click="runColLineage">Trace lineage</button>
         </div>
@@ -376,13 +399,25 @@
         <div v-if="docYaml" class="card" style="margin-top:.5rem">
           <div class="card-header">
             <div class="card-title">schema.yml</div>
-            <div class="btn-group">
-              <button class="btn btn-secondary btn-sm" @click="copyDocYaml">Copy</button>
-              <button class="btn btn-sm btn-gitlab" @click="gitlabPush(docYaml, 'models/' + docModel + '.yml')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
-            </div>
+            <button class="btn btn-secondary btn-sm" @click="copyDocYaml">Copy</button>
           </div>
           <div class="code-block-wrap">
             <pre>{{ docYaml }}</pre>
+          </div>
+          <!-- GitLab inline push form -->
+          <div class="gitlab-push-form" style="margin-top:.75rem">
+            <div style="font-size:.75rem;font-weight:700;color:#92400e;margin-bottom:.5rem">🦊 Push to GitLab</div>
+            <div class="gf-row">
+              <div class="gf-field">
+                <label>Branch</label>
+                <input type="text" v-model="glForms.docYaml.branch" />
+              </div>
+              <div class="gf-field" style="flex:2">
+                <label>Commit message</label>
+                <textarea v-model="glForms.docYaml.message"></textarea>
+              </div>
+              <button class="btn btn-sm btn-gitlab" @click="gitlabPushForm('docYaml', docYaml, 'models/' + docModel + '.yml')" :disabled="gitlabPushing">Commit &amp; Push</button>
+            </div>
           </div>
         </div>
       </div>
@@ -460,25 +495,35 @@
           <div class="card">
             <div class="card-header">
               <div class="card-title">{{ scafName }}.sql</div>
-              <div class="btn-group">
-                <button class="btn btn-secondary btn-sm" @click="copyScafSql">Copy</button>
-                <button class="btn btn-sm btn-gitlab" @click="gitlabPush(scafSql, 'models/' + scafLayer + '/' + scafName + '.sql')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
-              </div>
+              <button class="btn btn-secondary btn-sm" @click="copyScafSql">Copy</button>
             </div>
             <div class="code-block-wrap">
               <pre>{{ scafSql }}</pre>
+            </div>
+            <div class="gitlab-push-form" style="margin-top:.75rem">
+              <div style="font-size:.75rem;font-weight:700;color:#92400e;margin-bottom:.5rem">🦊 Push to GitLab</div>
+              <div class="gf-row">
+                <div class="gf-field"><label>Branch</label><input type="text" v-model="glForms.scafSql.branch" /></div>
+                <div class="gf-field" style="flex:2"><label>Commit message</label><textarea v-model="glForms.scafSql.message"></textarea></div>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPushForm('scafSql', scafSql, 'models/' + scafLayer + '/' + scafName + '.sql')" :disabled="gitlabPushing">Commit &amp; Push</button>
+              </div>
             </div>
           </div>
           <div class="card" v-if="scafYaml">
             <div class="card-header">
               <div class="card-title">schema.yml</div>
-              <div class="btn-group">
-                <button class="btn btn-secondary btn-sm" @click="copyScafYaml">Copy</button>
-                <button class="btn btn-sm btn-gitlab" @click="gitlabPush(scafYaml, 'models/' + scafLayer + '/' + scafName + '.yml')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
-              </div>
+              <button class="btn btn-secondary btn-sm" @click="copyScafYaml">Copy</button>
             </div>
             <div class="code-block-wrap">
               <pre>{{ scafYaml }}</pre>
+            </div>
+            <div class="gitlab-push-form" style="margin-top:.75rem">
+              <div style="font-size:.75rem;font-weight:700;color:#92400e;margin-bottom:.5rem">🦊 Push to GitLab</div>
+              <div class="gf-row">
+                <div class="gf-field"><label>Branch</label><input type="text" v-model="glForms.scafYaml.branch" /></div>
+                <div class="gf-field" style="flex:2"><label>Commit message</label><textarea v-model="glForms.scafYaml.message"></textarea></div>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPushForm('scafYaml', scafYaml, 'models/' + scafLayer + '/' + scafName + '.yml')" :disabled="gitlabPushing">Commit &amp; Push</button>
+              </div>
             </div>
           </div>
         </template>
@@ -520,25 +565,35 @@
           <div class="card">
             <div class="card-header">
               <div class="card-title">{{ stgName }}.sql</div>
-              <div class="btn-group">
-                <button class="btn btn-secondary btn-sm" @click="copyStgSql">Copy</button>
-                <button class="btn btn-sm btn-gitlab" @click="gitlabPush(stgSql, 'models/staging/' + stgName + '.sql')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
-              </div>
+              <button class="btn btn-secondary btn-sm" @click="copyStgSql">Copy</button>
             </div>
             <div class="code-block-wrap">
               <pre>{{ stgSql }}</pre>
+            </div>
+            <div class="gitlab-push-form" style="margin-top:.75rem">
+              <div style="font-size:.75rem;font-weight:700;color:#92400e;margin-bottom:.5rem">🦊 Push to GitLab</div>
+              <div class="gf-row">
+                <div class="gf-field"><label>Branch</label><input type="text" v-model="glForms.stgSql.branch" /></div>
+                <div class="gf-field" style="flex:2"><label>Commit message</label><textarea v-model="glForms.stgSql.message"></textarea></div>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPushForm('stgSql', stgSql, 'models/staging/' + stgName + '.sql')" :disabled="gitlabPushing">Commit &amp; Push</button>
+              </div>
             </div>
           </div>
           <div class="card" v-if="stgYaml">
             <div class="card-header">
               <div class="card-title">schema.yml</div>
-              <div class="btn-group">
-                <button class="btn btn-secondary btn-sm" @click="copyStgYaml">Copy</button>
-                <button class="btn btn-sm btn-gitlab" @click="gitlabPush(stgYaml, 'models/staging/' + stgName + '.yml')" :disabled="gitlabPushing">🦊 Push to GitLab</button>
-              </div>
+              <button class="btn btn-secondary btn-sm" @click="copyStgYaml">Copy</button>
             </div>
             <div class="code-block-wrap">
               <pre>{{ stgYaml }}</pre>
+            </div>
+            <div class="gitlab-push-form" style="margin-top:.75rem">
+              <div style="font-size:.75rem;font-weight:700;color:#92400e;margin-bottom:.5rem">🦊 Push to GitLab</div>
+              <div class="gf-row">
+                <div class="gf-field"><label>Branch</label><input type="text" v-model="glForms.stgYaml.branch" /></div>
+                <div class="gf-field" style="flex:2"><label>Commit message</label><textarea v-model="glForms.stgYaml.message"></textarea></div>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPushForm('stgYaml', stgYaml, 'models/staging/' + stgName + '.yml')" :disabled="gitlabPushing">Commit &amp; Push</button>
+              </div>
             </div>
           </div>
         </template>
@@ -586,6 +641,118 @@
           </div>
           <p v-if="incrNotes" style="color:#64748b;font-size:.85rem;margin-top:.5rem">{{ incrNotes }}</p>
         </template>
+      </div>
+
+      <!-- ======== MODEL SPLITTER ======== -->
+      <div id="panel-splitter" class="panel" v-show="panel==='splitter'">
+        <div class="panel-title">✂️ Model Splitter</div>
+        <div class="panel-desc">Analyzes a SQL model and determines whether it should be split into multiple sub-models for maintainability.</div>
+        <div class="card">
+          <div class="form-group">
+            <label class="form-label">Model name (optional)</label>
+            <input type="text" v-model="splitterModelName" placeholder="my_large_model" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">SQL to analyze</label>
+            <textarea v-model="splitterSql" rows="10" placeholder="Paste your dbt SQL model here…"></textarea>
+          </div>
+          <button class="btn btn-primary" @click="analyzeSplitter" :disabled="splitterLoading">
+            {{ splitterLoading ? 'Analyzing…' : '✂️ Analyze' }}
+          </button>
+        </div>
+        <div v-if="splitterResult" class="card" style="margin-top:.5rem">
+          <div class="card-header">
+            <div class="card-title">Analysis</div>
+            <span :class="'split-badge ' + (splitterResult.should_split ? 'yes' : 'no')">
+              {{ splitterResult.should_split ? 'Should Split' : 'Keep Together' }}
+            </span>
+          </div>
+          <p style="font-size:.85rem;color:#475569;margin-bottom:.75rem">{{ splitterResult.reasoning }}</p>
+          <div v-for="(sub, si) in (splitterResult.sub_models || [])" :key="si" class="splitter-card">
+            <div class="splitter-card-header">
+              <div class="splitter-card-name">{{ sub.name }}</div>
+              <div v-if="sub.depends_on && sub.depends_on.length" style="font-size:.75rem;color:#64748b">depends on: {{ sub.depends_on.join(', ') }}</div>
+            </div>
+            <div v-if="sub.sql" class="code-block-wrap" style="margin-top:.4rem">
+              <pre>{{ sub.sql }}</pre>
+            </div>
+            <div v-if="sub.yaml" class="code-block-wrap" style="margin-top:.4rem">
+              <pre>{{ sub.yaml }}</pre>
+            </div>
+            <div class="gitlab-push-form" style="margin-top:.5rem">
+              <div style="font-size:.75rem;font-weight:700;color:#92400e;margin-bottom:.4rem">🦊 Push SQL to GitLab</div>
+              <div class="gf-row">
+                <div class="gf-field"><label>Branch</label><input type="text" :value="gitlabBranch" @input="splitterGlBranch=[$event.target.value,si]" /></div>
+                <div class="gf-field" style="flex:2"><label>Commit message</label><textarea :value="'feat: add sub-model ' + sub.name" @input="splitterGlMsg=[$event.target.value,si]"></textarea></div>
+                <button class="btn btn-sm btn-gitlab" @click="gitlabPushSplitter(sub, si)" :disabled="gitlabPushing">Commit &amp; Push</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ======== DIALECT CONVERTER ======== -->
+      <div id="panel-converter" class="panel" v-show="panel==='converter'">
+        <div class="panel-title">🔄 Dialect Converter</div>
+        <div class="panel-desc">Convert SQL from one warehouse dialect to another using sqlglot, with LLM fallback for complex cases.</div>
+        <div class="card">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Source dialect</label>
+              <select v-model="convSourceDialect">
+                <option>snowflake</option><option>bigquery</option><option>redshift</option>
+                <option>postgres</option><option>databricks</option><option>duckdb</option><option>trino</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">Target dialect</label>
+              <select v-model="convTargetDialect">
+                <option>bigquery</option><option>snowflake</option><option>redshift</option>
+                <option>postgres</option><option>databricks</option><option>duckdb</option><option>trino</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:.5rem;margin-bottom:.75rem">
+            <button class="sql-mode-tab" :class="{active: convMode==='paste'}" @click="convMode='paste'">Paste SQL</button>
+            <button class="sql-mode-tab" :class="{active: convMode==='model'}" @click="convMode='model'">Single model</button>
+            <button class="sql-mode-tab" :class="{active: convMode==='lineage'}" @click="convMode='lineage'">Model lineage</button>
+          </div>
+          <div v-if="convMode==='paste'" class="form-group">
+            <label class="form-label">SQL to convert</label>
+            <textarea v-model="convSql" rows="10" placeholder="Paste SQL here…"></textarea>
+          </div>
+          <div v-else-if="convMode==='model'" class="form-group">
+            <label class="form-label">Model name</label>
+            <auto-input v-model="convModelName" kind="model" placeholder="fct_orders" input-id="conv_model" @update:model-value="loadConvModelSql"></auto-input>
+            <div v-if="convSql" class="code-block-wrap" style="margin-top:.5rem"><pre style="max-height:180px;overflow:auto">{{ convSql }}</pre></div>
+          </div>
+          <div v-else class="form-group">
+            <label class="form-label">Root model for lineage</label>
+            <auto-input v-model="convLineageModel" kind="model" placeholder="fct_orders" input-id="conv_lineage_model"></auto-input>
+            <p style="font-size:.78rem;color:#64748b;margin-top:.3rem">Will convert all models in the upstream lineage chain.</p>
+          </div>
+          <button class="btn btn-primary" @click="runConverter" :disabled="convLoading">
+            {{ convLoading ? 'Converting…' : '🔄 Convert' }}
+          </button>
+        </div>
+        <div v-for="(res, ri) in convResults" :key="ri" class="converter-result">
+          <div class="converter-result-header">
+            <strong style="color:var(--md-primary)">{{ res.model_name || ('Result ' + (ri+1)) }}</strong>
+            <div class="btn-group">
+              <button class="btn btn-secondary btn-sm" @click="copyText(res.converted_sql)">Copy</button>
+              <button class="btn btn-sm btn-gitlab" @click="openConvGlForm(ri)" :disabled="gitlabPushing">🦊 Push</button>
+            </div>
+          </div>
+          <div v-for="(w, wi) in res.warnings" :key="wi" class="converter-warning">⚠ {{ w }}</div>
+          <div class="code-block-wrap" style="margin-top:.4rem"><pre>{{ res.converted_sql }}</pre></div>
+          <div v-if="res._glOpen" class="gitlab-push-form" style="margin-top:.5rem">
+            <div class="gf-row">
+              <div class="gf-field"><label>Branch</label><input type="text" v-model="res._glBranch" /></div>
+              <div class="gf-field" style="flex:2"><label>Commit message</label><textarea v-model="res._glMsg"></textarea></div>
+              <button class="btn btn-sm btn-gitlab" @click="gitlabPushConverter(res)" :disabled="gitlabPushing">Commit &amp; Push</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ======== TESTS — C1 ======== -->
@@ -745,7 +912,18 @@
       <!-- ======== SQL OPTIMIZER ======== -->
       <div id="panel-sqlopt" class="panel" v-show="panel==='sqlopt'">
         <div class="panel-title">⚡ SQL Optimizer</div>
-        <div class="panel-desc">Paste an existing dbt model SQL query and get AI-powered optimization suggestions for your specific warehouse dialect.</div>
+        <div class="panel-desc">Optimize dbt model SQL for your specific warehouse dialect. Choose a model from suggestions, paste SQL, or select from your project.</div>
+
+        <!-- Mode selector -->
+        <div class="sql-mode-tabs" style="margin-bottom:.75rem">
+          <button class="sql-mode-tab" :class="{active: sqlMode==='paste'}" @click="sqlMode='paste'">Paste SQL</button>
+          <button class="sql-mode-tab" :class="{active: sqlMode==='single'}" @click="sqlMode='single'">Single model</button>
+          <button class="sql-mode-tab" :class="{active: sqlMode==='upstream'}" @click="sqlMode='upstream'">Upstream lineage</button>
+          <button class="sql-mode-tab" :class="{active: sqlMode==='downstream'}" @click="sqlMode='downstream'">Downstream lineage</button>
+          <button class="sql-mode-tab" :class="{active: sqlMode==='handpick'}" @click="sqlMode='handpick'">Hand-pick</button>
+          <button class="sql-mode-tab" :class="{active: sqlMode==='suggestions'}" @click="sqlMode='suggestions'; loadSqlSuggestions()">Suggestions</button>
+        </div>
+
         <div class="card">
           <div style="display:flex;gap:.75rem;align-items:flex-end;margin-bottom:.75rem">
             <div class="form-group" style="margin:0;flex:1">
@@ -761,10 +939,54 @@
               </select>
             </div>
           </div>
-          <div class="form-group">
+
+          <!-- Paste mode -->
+          <div v-if="sqlMode==='paste'" class="form-group">
             <label class="form-label">SQL to optimize</label>
-            <textarea v-model="sqlInput" rows="12" placeholder="SELECT&#10;  o.customer_id,&#10;  SUM(o.amount) AS total_revenue&#10;FROM {{ ref('stg_orders') }} o&#10;JOIN {{ ref('stg_customers') }} c ON o.customer_id = c.id&#10;WHERE o.created_at &gt;= DATEADD(day, -90, CURRENT_DATE)&#10;GROUP BY 1"></textarea>
+            <textarea v-model="sqlInput" rows="12" placeholder="SELECT&#10;  o.customer_id,&#10;  SUM(o.amount) AS total_revenue&#10;FROM {{ ref('stg_orders') }} o&#10;GROUP BY 1"></textarea>
           </div>
+
+          <!-- Single model -->
+          <div v-else-if="sqlMode==='single'" class="form-group">
+            <label class="form-label">Model name</label>
+            <auto-input v-model="sqlSingleModel" kind="model" placeholder="fct_orders" input-id="sql_single_model" @update:model-value="loadSingleModelSql"></auto-input>
+            <div v-if="sqlModelSqls[sqlSingleModel]" class="code-block-wrap" style="margin-top:.5rem">
+              <pre style="max-height:160px;overflow:auto">{{ sqlModelSqls[sqlSingleModel] }}</pre>
+            </div>
+          </div>
+
+          <!-- Upstream / downstream -->
+          <div v-else-if="sqlMode==='upstream' || sqlMode==='downstream'" class="form-group">
+            <label class="form-label">Root model</label>
+            <auto-input v-model="sqlLineageModel" kind="model" placeholder="fct_orders" input-id="sql_lineage_model"></auto-input>
+            <p style="font-size:.78rem;color:#64748b;margin-top:.3rem">Will fetch and optimize all {{ sqlMode }} models in the lineage.</p>
+            <div v-if="sqlLineageModels.length" style="font-size:.8rem;color:#475569;margin-top:.4rem">
+              Models to optimize: <strong>{{ sqlLineageModels.join(', ') }}</strong>
+            </div>
+          </div>
+
+          <!-- Hand-pick -->
+          <div v-else-if="sqlMode==='handpick'" class="form-group">
+            <label class="form-label">Add model</label>
+            <auto-input v-model="sqlHandpickInput" kind="model" placeholder="Type model name…" input-id="sql_handpick" @update:model-value="addHandpickedModel"></auto-input>
+            <div v-if="sqlHandpicked.length" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem">
+              <span v-for="m in sqlHandpicked" :key="m" class="suggestion-chip" @click="removeHandpickedModel(m)">{{ m }} ✕</span>
+            </div>
+          </div>
+
+          <!-- Suggestions -->
+          <div v-else-if="sqlMode==='suggestions'">
+            <p style="font-size:.82rem;color:#64748b;margin-bottom:.5rem">Models with quality score &lt; 70 — candidates for optimization:</p>
+            <div v-if="!sqlSuggestions.length" style="color:#94a3b8;font-size:.85rem">No suggestions yet. Load quality scores first.</div>
+            <div style="display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:.75rem">
+              <span v-for="s in sqlSuggestions" :key="s.name"
+                class="suggestion-chip" :class="{active: sqlSingleModel===s.name}"
+                @click="sqlMode='single'; sqlSingleModel=s.name; loadSingleModelSql(s.name)">
+                {{ s.name }} ({{ s.score }})
+              </span>
+            </div>
+          </div>
+
           <button class="btn btn-primary" @click="optimizeSQL" :disabled="sqlLoading">
             {{ sqlLoading ? 'Analyzing…' : '⚡ Optimize SQL' }}
           </button>
@@ -807,6 +1029,31 @@
         <div class="panel-title">⚙ Settings</div>
         <div class="panel-desc">All settings are kept in memory only — nothing is written to disk. Re-enter after server restart.</div>
 
+        <!-- Font size + .env upload row -->
+        <div class="card">
+          <div class="card-header"><div class="card-title">Display &amp; Import</div></div>
+          <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-start">
+            <div>
+              <div class="form-label" style="margin-bottom:.4rem">Font size</div>
+              <div class="font-size-btns">
+                <button class="font-size-btn" :class="{active: fontSize===12}" @click="setFontSize(12)">Small 12px</button>
+                <button class="font-size-btn" :class="{active: fontSize===14}" @click="setFontSize(14)">Medium 14px</button>
+                <button class="font-size-btn" :class="{active: fontSize===16}" @click="setFontSize(16)">Large 16px</button>
+              </div>
+            </div>
+            <div>
+              <div class="form-label" style="margin-bottom:.4rem">.env file</div>
+              <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+                <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+                  📂 Upload .env
+                  <input type="file" accept=".env,text/plain" style="display:none" @change="uploadEnvFile($event)" />
+                </label>
+                <button class="btn btn-secondary btn-sm" @click="downloadExampleEnv">⬇ Example .env</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-header"><div class="card-title">LLM — Cline / Anthropic / OpenRouter</div></div>
           <div class="form-group">
@@ -822,6 +1069,22 @@
           <div class="form-group">
             <label class="form-label">Model</label>
             <input type="text" v-model="llmModel" placeholder="claude-sonnet-4-6" />
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">SQL Dialect</div></div>
+          <div class="form-group">
+            <label class="form-label">Default SQL dialect (used for SQL Optimizer)</label>
+            <select v-model="sqlDialectSetting">
+              <option>snowflake</option>
+              <option>bigquery</option>
+              <option>redshift</option>
+              <option>postgres</option>
+              <option>databricks</option>
+              <option>duckdb</option>
+              <option>trino</option>
+            </select>
           </div>
         </div>
 
@@ -892,7 +1155,7 @@
               <input type="text" v-model="gitlabProject" placeholder="myorg/my-dbt-repo" />
             </div>
             <div class="form-group" style="margin:0">
-              <label class="form-label">Target branch</label>
+              <label class="form-label">Default branch</label>
               <div style="display:flex;gap:.4rem">
                 <input type="text" v-model="gitlabBranch" placeholder="main" style="flex:1" />
                 <button class="btn btn-secondary btn-sm" @click="loadGitlabBranches" title="Load branches">↻</button>
@@ -900,6 +1163,7 @@
               <select v-if="gitlabBranches.length" v-model="gitlabBranch" style="margin-top:.35rem">
                 <option v-for="b in gitlabBranches" :key="b" :value="b">{{ b }}</option>
               </select>
+              <div class="form-hint">This is only a default reference — each push has its own branch input.</div>
             </div>
           </div>
         </div>
