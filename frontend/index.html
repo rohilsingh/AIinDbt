@@ -346,7 +346,7 @@
         <div class="btn-group" style="margin-bottom:.75rem">
           <button class="btn btn-secondary" @click="listUndocumented">List undocumented models</button>
         </div>
-        <data-table :rows="undocRows" :columns="undocCols" export-name="undocumented" :row-clickable="true" @row-click="docModel = $event.name; $el.querySelector('#doc_model') && $el.querySelector('#doc_model').focus()" />
+        <data-table :rows="undocRows" :columns="undocCols" export-name="undocumented" :row-clickable="true" @row-click="docModel = $event.name; $el.querySelector('#doc_model') &amp;&amp; $el.querySelector('#doc_model').focus()"></data-table>
         <p v-if="undocRows.length" style="font-size:.8rem;color:var(--md-primary);margin:.4rem 0 .75rem">↑ Click a row to select that model below</p>
         <hr class="card-divider" style="margin:1.25rem 0"/>
         <div class="card">
@@ -481,7 +481,7 @@
         <div class="btn-group" style="margin-bottom:.75rem">
           <button class="btn btn-secondary" @click="analyzeIncremental">Analyze project</button>
         </div>
-        <data-table :rows="incrRows" :columns="incrCols" :booleans="['recommend_incremental']" export-name="incremental-candidates" :row-clickable="true" @row-click="incrModel = $event.name" />
+        <data-table :rows="incrRows" :columns="incrCols" :booleans="['recommend_incremental']" export-name="incremental-candidates" :row-clickable="true" @row-click="incrModel = $event.name"></data-table>
         <p v-if="incrRows.length" style="font-size:.8rem;color:var(--md-primary);margin:.4rem 0 .75rem">↑ Click a row to select that model for rewriting below</p>
         <hr class="card-divider" style="margin:1.25rem 0"/>
         <div class="card">
